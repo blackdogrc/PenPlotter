@@ -543,19 +543,21 @@ async function storeSteps() {
 }
 
 function calculateSteps(axis) {
-  if (axis !== 'X' && axis !== 'Y') return;
+  const key = String(axis).toLowerCase();
+  if (key !== 'x' && key !== 'y') return;
 
-  const saveButton = document.getElementById('save' + axis.toUpperCase() + 'Steps');
+  const saveButton =
+    document.getElementById('save' + key.toUpperCase() + 'Steps');
   saveButton.disabled = true;
 
   const current = Number(
-    document.getElementById(axis + 'CurrentSteps').textContent
+    document.getElementById(key + 'CurrentSteps').textContent
   );
   const commanded = Number(
-    document.getElementById(axis + 'CommandDistance').value
+    document.getElementById(key + 'CommandDistance').value
   );
   const measured = Number(
-    document.getElementById(axis + 'MeasuredDistance').value
+    document.getElementById(key + 'MeasuredDistance').value
   );
 
   if (!(current > 0) || !(commanded > 0) || !(measured > 0)) {
@@ -564,11 +566,11 @@ function calculateSteps(axis) {
   }
 
   const result = current * commanded / measured;
-  document.getElementById(axis + 'NewSteps').textContent =
+  document.getElementById(key + 'NewSteps').textContent =
     result.toFixed(2);
-
   saveButton.disabled = false;
 }
+
 </script>
 <script src="/svg-converter.js"></script>
 <script>
