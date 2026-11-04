@@ -22,6 +22,7 @@ public:
   bool paused() const { return paused_; }
   Source owner() const { return owner_; }
   uint16_t currentLine() const { return currentLine_; }
+  String settings() const;
 
   String status();
   String webStatus();

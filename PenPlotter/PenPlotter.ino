@@ -39,16 +39,21 @@ static bool handleSystemCommand(const String& line) {
       line.startsWith("$25=")) {
     return false;  // Let Gcode enqueue and execute the setting.
   }
-  if (line == "$$") {
-    Serial.println("$0=10");
-    Serial.println("$1=25");
-    Serial.println("$10=3");
-    Serial.println("$25=" + String(gcode.homingSeekRate(), 2));
-    Serial.println("$110=" + String(gcode.xMaxRate(), 2));
-    Serial.println("$111=" + String(gcode.yMaxRate(), 2));
-    Serial.println("ok");
-    return true;
-  }
+  // if (line == "$$") {
+  //   Serial.println("$0=10");
+  //   Serial.println("$1=25");
+  //   Serial.println("$10=3");
+  //   Serial.println("$25=" + String(gcode.homingSeekRate(), 2));
+  //   Serial.println("$110=" + String(gcode.xMaxRate(), 2));
+  //   Serial.println("$111=" + String(gcode.yMaxRate(), 2));
+  //   Serial.println("ok");
+  //   return true;
+  // }
+  if (line == "$" || line == "$$") {
+  Serial.print(gcode.settings());
+  Serial.println("ok");
+  return true;
+}
 
   if (line == "$G") {
     Serial.println("[GC:G0 G54 G17 G21 G90 G94 M5 M9]");

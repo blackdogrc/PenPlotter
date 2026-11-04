@@ -201,4 +201,29 @@ String Gcode::webStatus() {
   s += "}";
   return s;
 }
+String Gcode::settings() const {
+  String result;
+
+  result += "$100=";
+  result += String(xStepsPerMm(), 2);
+  result += '\n';
+
+  result += "$101=";
+  result += String(yStepsPerMm(), 2);
+  result += '\n';
+
+  result += "$25=";
+  result += String(homingSeekRate(), 2);
+  result += '\n';
+
+  result += "$110=";
+  result += String(xMaxRate(), 2);
+  result += '\n';
+
+  result += "$111=";
+  result += String(yMaxRate(), 2);
+
+  return result;
+}
+
 

@@ -499,7 +499,55 @@ updateLineNumbers();
 refreshHelp();
 refreshSettings();
 setInterval(getStatus, 1000);
+async function sendSettingAndWait(gcode) {
+  const response = await fetch(
+    '/api/cmd?g=' + encodeURIComponent(gcode)
+  );
+  const message = await response.text();
+  log(message);
+
+  if (!response.ok) {
+    throw new Error(message);
+  }
+
+  // /api/cmd queues the setting and M30. Wait for that short job to finish
+  // before sending another setting.
+  for (let i = 0; i < 120; i++) {
+    const status = await getStatus();
+    if (status && !status.busy) return;
+    await sleep(250);
+  }
+
+  throw new Error('Timed out waiting for the setting command.');
+}
+
+async function storeSteps() {
+  const x = document.getElementById('xNewSteps').textContent.trim();
+  const y = document.getElementById('yNewSteps').textContent.trim();
+
+  if (x === '—' || y === '—' || !(Number(x) > 0) || !(Number(y) > 0)) {
+    alert('Calculate both X and Y steps/mm before storing.');
+    return;
+  }
+
+  if (!confirm(`Store X=${x} and Y=${y} steps/mm?`)) return;
+
+  try {
+    await sendSettingAndWait('$100=' + x);
+    await sendSettingAndWait('$101=' + y);
+    log('Steps/mm settings stored.');
+    await refreshSettings();
+  } catch (error) {
+    log('Could not store steps/mm: ' + error.message);
+  }
+}
+
 function calculateSteps(axis) {
+  if (axis !== 'X' && axis !== 'Y') return;
+
+  const saveButton = document.getElementById('save' + axis.toUpperCase() + 'Steps');
+  saveButton.disabled = true;
+
   const current = Number(
     document.getElementById(axis + 'CurrentSteps').textContent
   );
@@ -518,6 +566,8 @@ function calculateSteps(axis) {
   const result = current * commanded / measured;
   document.getElementById(axis + 'NewSteps').textContent =
     result.toFixed(2);
+
+  saveButton.disabled = false;
 }
 </script>
 <script src="/svg-converter.js"></script>
@@ -565,6 +615,27 @@ async function generateSvgGcode() {
   } catch (error) {
     message.textContent = 'SVG conversion failed: ' + error.message;
     log('SVG conversion failed: ' + error.message);
+  }
+}
+async function storeSteps(axis) {
+  const isX = axis === 'X';
+  const valueId = isX ? 'xNewSteps' : 'yNewSteps';
+  const buttonId = isX ? 'saveXSteps' : 'saveYSteps';
+  const setting = isX ? '$100=' : '$101=';
+  const value = document.getElementById(valueId).textContent.trim();
+  const button = document.getElementById(buttonId);
+
+  if (!(Number(value) > 0)) return;
+
+  button.disabled = true; // Dim it while saving, too.
+
+  try {
+    await sendSettingAndWait(setting + value);
+    log(`${axis} steps/mm stored.`);
+    await refreshSettings();
+  } catch (error) {
+    button.disabled = false; // Allow retry if the save failed.
+    log(`Could not store ${axis} steps/mm: ` + error.message);
   }
 }
 </script>
@@ -696,13 +767,13 @@ void webBegin(Gcode& gcode) {
     html += "</td><td><input id='xCommandDistance' type='number' min='0.001' step='any'></td>";
     html += "<td><input id='xMeasuredDistance' type='number' min='0.001' step='any'></td>";
     html += "<td><button type='button' onclick=\"calculateSteps('x')\">Calculate</button></td>";
-    html += "<td id='xNewSteps'>—</td></tr>";
+   html += "<td id='xNewSteps'>—</td><td><button id='saveXSteps' type='button' disabled onclick=\"storeSteps('X')\">Save X</button></td></tr>";
     html += "<tr><td>Y</td><td id='yCurrentSteps'>";
     html += String(parser->yStepsPerMm(), 2);
     html += "</td><td><input id='yCommandDistance' type='number' min='0.001' step='any'></td>";
     html += "<td><input id='yMeasuredDistance' type='number' min='0.001' step='any'></td>";
-    html += "<td><button type='button' onclick=\"calculateSteps('y')\">Calculate</button></td>";
-    html += "<td id='yNewSteps'>—</td></tr>";
+   html += "<td><button type='button' onclick=\"calculateSteps('y')\">Calculate</button></td><td><button id='saveYSteps' type='button' disabled onclick=\"storeSteps('Y')\">Save Y</button></td>";
+     html += "<td id='yNewSteps'>—</td></tr>";
     html += "</table>";
 
     server.send(200, "text/html", html);
@@ -735,6 +806,16 @@ void webBegin(Gcode& gcode) {
   });
 
   server.on("/api/cmd", HTTP_GET, []() {
+    String command = server.arg("g");
+  command.trim();
+
+  if (command == "$" || command == "$$") {
+    String response = parser->settings();
+    response += "\nok";
+    server.send(200, "text/plain", response);
+    return;
+    
+  }
     if (!server.hasArg("g")) {
       sendError(400, "Missing command");
       return;
