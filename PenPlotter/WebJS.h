@@ -381,10 +381,21 @@ function calculateSteps(axis) {
     result.toFixed(2);
   saveButton.disabled = false;
 }
+const id = axis + suffix;
+const element = document.getElementById(id);
+
 
 for (const axis of ['x', 'y']) {
   for (const suffix of ['CommandDistance', 'MeasuredDistance']) {
-    document.getElementById(axis + suffix).addEventListener('input', () => {
+    const id = axis + suffix;
+    const element = document.getElementById(id);
+
+    if (!element) {
+      console.error(`Missing element: #${id}`);
+      continue;
+    }
+
+    element.addEventListener('input', () => {
       document.getElementById(
         'save' + axis.toUpperCase() + 'Steps'
       ).disabled = true;
@@ -392,6 +403,8 @@ for (const axis of ['x', 'y']) {
     });
   }
 }
+
+
 
 async function generateSvgGcode() {
   const input = document.getElementById('svgFile');
