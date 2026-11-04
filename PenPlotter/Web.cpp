@@ -112,10 +112,10 @@ pre{white-space:pre-wrap;background:#eee;padding:10px;max-height:180px;overflow:
   </label>
 
   <div class="row">
-    <button onclick="jog(0,-1)">Y−</button>
+    <button onclick="jog(0,-1)">Y-</button>
   </div>
   <div class="row">
-    <button onclick="jog(-1,0)">X−</button>
+    <button onclick="jog(-1,0)">X-</button>
     <button onclick="jog(1,0)">X+</button>
   </div>
   <div class="row">
