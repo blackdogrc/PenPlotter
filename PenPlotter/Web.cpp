@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include "SvgConverter.h"
+#include "WebJS.h"
 
 static WebServer server(80);
 static Gcode* parser = nullptr;
@@ -19,14 +20,12 @@ body{font:16px system-ui;max-width:900px;margin:18px auto;padding:0 12px}
 nav button,button{font-size:16px;padding:9px 12px;margin:3px}
 nav button{min-width:90px}
 #lineNumbers {
-  max-height: none;
-  height: 100%;
-  overflow: hidden;
-  line-height: 18px;
+  max-height:none;
+  height:100%;
+  overflow:hidden;
+  line-height:18px;
 }
-
 .editor textarea{
-  /* keep the other existing properties */
   font:14px monospace;
   line-height:18px;
 }
@@ -42,7 +41,6 @@ pre{white-space:pre-wrap;background:#eee;padding:10px;max-height:180px;overflow:
 .settings table{border-collapse:collapse;width:100%;font-size:14px}
 .settings th,.settings td{border:1px solid #bbb;padding:8px;text-align:left}
 .settings th{background:#eee}
-
 .editor{
   display:flex;
   width:100%;
@@ -158,15 +156,14 @@ pre{white-space:pre-wrap;background:#eee;padding:10px;max-height:180px;overflow:
 
   <div id="progress">Idle</div>
 </section>
+
 <section id="svg" class="tab">
   <h3>SVG to G-code</h3>
 
-  <p>
-    <input id="svgFile" type="file" accept=".svg,image/svg+xml">
-  </p>
+  <p><input id="svgFile" type="file" accept=".svg,image/svg+xml"></p>
 
   <p>
-    Work area: 225 × 325 mm.
+    Work area: 225 mm by 325 mm.
     <label>
       Oversize handling
       <select id="svgMode">
@@ -184,6 +181,7 @@ pre{white-space:pre-wrap;background:#eee;padding:10px;max-height:180px;overflow:
   <button onclick="generateSvgGcode()">Generate G-code</button>
   <span id="svgMessage"></span>
 </section>
+
 <section id="help" class="tab">
   <h3>Instructions</h3>
   <div id="helpText" class="help">Loading instructions…</div>
@@ -197,450 +195,8 @@ pre{white-space:pre-wrap;background:#eee;padding:10px;max-height:180px;overflow:
 <h3>Console</h3>
 <pre id="console">Ready</pre>
 
-<script>
-let cancelJob = false;
-
-function showTab(id) {
-  document.querySelectorAll('.tab').forEach(e => e.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
-}
-
-function log(message) {
-  const box = document.getElementById('console');
-  box.textContent += (box.textContent ? '\n' : '') + message;
-  box.scrollTop = box.scrollHeight;
-}
-
-async function control(url) {
-  try {
-    const response = await fetch(url);
-    log(await response.text());
-  } catch (error) {
-    log('Request failed: ' + error);
-  }
-}
-
-async function stopJob() {
-  // Set this before making the request so the sender stops immediately.
-  cancelJob = true;
-  await control('/api/stop');
-}
-
-function updateLineNumbers(activeLine = 0) {
-  const program = document.getElementById('program');
-  const gutter = document.getElementById('lineNumbers');
-  const count = program.value.split(/\r?\n/).length;
-
-  let html = '';
-  for (let i = 1; i <= count; i++) {
-    html += '<span class="' + (i === activeLine ? 'active' : '') +
-            '">' + i + '</span>\n';
-  }
-  gutter.innerHTML = html;
-
-  if (activeLine > 0) {
-    const style = getComputedStyle(program);
-    const lineHeight = parseFloat(style.lineHeight) || 18;
-    const paddingTop = parseFloat(style.paddingTop) || 0;
-    const lineTop = paddingTop + (activeLine - 1) * lineHeight;
-    const lineBottom = lineTop + lineHeight;
-    const viewTop = program.scrollTop;
-    const viewBottom = viewTop + program.clientHeight;
-
-    if (lineTop < viewTop || lineBottom > viewBottom) {
-      program.scrollTop = Math.max(0, lineTop - 2 * lineHeight);
-    }
-  }
-
-  gutter.scrollTop = program.scrollTop;
-}
-
-document.getElementById('program').addEventListener('input', () => {
-  updateLineNumbers();
-});
-
-document.getElementById('program').addEventListener('scroll', event => {
-  document.getElementById('lineNumbers').scrollTop = event.target.scrollTop;
-});
-
-async function loadFile(input) {
-  if (input.files && input.files[0]) {
-    document.getElementById('program').value =
-      await input.files[0].text();
-    updateLineNumbers();
-  }
-}
-
-function saveFile() {
-  const contents = document.getElementById('program').value;
-  const filename = prompt('Save G-code as:', 'plotter.gcode');
-
-  if (filename === null) return;
-
-  let name = filename.trim();
-  if (!name) name = 'plotter.gcode';
-  if (!/\.[a-z0-9]+$/i.test(name)) name += '.gcode';
-
-  const blob = new Blob([contents], {type: 'text/plain'});
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = name;
-  link.click();
-  URL.revokeObjectURL(link.href);
-}
-
-async function command(gcode) {
-  if (!gcode.trim()) return;
-  const response = await fetch('/api/cmd?g=' + encodeURIComponent(gcode));
-  log(await response.text());
-}
-
-async function jog(x, y) {
-  const distance = Number(document.getElementById('dist').value);
-  const response = await fetch('/api/jog?x=' + (x * distance) +
-                               '&y=' + (y * distance));
-  log(await response.text());
-}
-
-async function getStatus() {
-  try {
-    const response = await fetch('/api/status');
-    const status = await response.json();
-
-    document.getElementById('progress').textContent =
-      status.state + ' | owner: ' + status.owner +
-      ' | line: ' + status.line +
-      ' | X: ' + status.x + ' Y: ' + status.y;
-
-    updateLineNumbers(Number(status.line));
-    return status;
-  } catch (error) {
-    return null;
-  }
-}
-
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-async function waitUntilIdle() {
-  while (!cancelJob) {
-    const status = await getStatus();
-
-    if (cancelJob) return false;
-    if (status && !status.busy && !status.paused) return true;
-
-    await sleep(250);
-  }
-  return false;
-}
-
-async function runJob() {
-  cancelJob = false;
-
-  const text = document.getElementById('program').value;
-  const lines = text.split(/\r?\n/);
-
-  let response = await fetch('/api/start');
-  if (!response.ok) {
-    log(await response.text());
-    return;
-  }
-
-  log('Web G-code job started');
-
-  for (let i = 0; i < lines.length; i++) {
-    if (cancelJob) {
-      log('Job stopped');
-      return;
-    }
-
-    const line = lines[i].trim();
-    if (!line || line.startsWith(';')) continue;
-
-    // Retry a full queue. Check cancellation on every retry.
-    while (true) {
-      if (cancelJob) {
-        log('Job stopped');
-        return;
-      }
-
-      response = await fetch('/api/line?n=' + (i + 1) +
-                             '&g=' + encodeURIComponent(lines[i]));
-
-      if (cancelJob) {
-        log('Job stopped');
-        return;
-      }
-
-      if (response.ok) break;
-
-      if (response.status === 429) {
-        await sleep(250);
-        continue;
-      }
-
-      log(await response.text());
-      return;
-    }
-
-    log('Queued line ' + (i + 1) + ': ' + line);
-
-    const idle = await waitUntilIdle();
-    if (!idle || cancelJob) {
-      log('Job stopped');
-      return;
-    }
-
-    if (/^M(2|30)\b/i.test(line)) {
-      log('Job complete');
-      return;
-    }
-  }
-
-  if (cancelJob) {
-    log('Job stopped');
-    return;
-  }
-
-  // Release web ownership if the file did not contain M2 or M30.
-  response = await fetch('/api/line?n=' + (lines.length + 1) +
-                         '&g=M30');
-
-  if (cancelJob) {
-    log('Job stopped');
-    return;
-  }
-
-  if (response.ok) {
-    const idle = await waitUntilIdle();
-    if (idle && !cancelJob) log('Job complete (M30 appended)');
-    else log('Job stopped');
-  } else {
-    log(await response.text());
-  }
-}
-
-function escapeHtml(text) {
-  return text.replace(/&/g, '&amp;')
-             .replace(/</g, '&lt;')
-             .replace(/>/g, '&gt;')
-             .replace(/"/g, '&quot;')
-             .replace(/'/g, '&#39;');
-}
-
-function renderMarkdown(markdown) {
-  const lines = markdown.split(/\r?\n/);
-  let html = '';
-  let inList = false;
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-
-    if (!line) {
-      if (inList) {
-        html += '</ul>';
-        inList = false;
-      }
-      continue;
-    }
-
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    if (heading) {
-      if (inList) {
-        html += '</ul>';
-        inList = false;
-      }
-      const level = heading[1].length;
-      html += '<h' + level + '>' +
-              escapeHtml(heading[2]) +
-              '</h' + level + '>';
-      continue;
-    }
-
-    if (line.startsWith('- ')) {
-      if (!inList) {
-        html += '<ul>';
-        inList = true;
-      }
-      html += '<li>' +
-              escapeHtml(line.slice(2)).replace(
-                /`([^`]+)`/g, '<code>$1</code>') +
-              '</li>';
-      continue;
-    }
-
-    if (inList) {
-      html += '</ul>';
-      inList = false;
-    }
-
-    html += '<p>' +
-            escapeHtml(line).replace(
-              /`([^`]+)`/g, '<code>$1</code>') +
-            '</p>';
-  }
-
-  if (inList) html += '</ul>';
-  return html;
-}
-
-async function refreshHelp() {
-  const response = await fetch('/api/help');
-  document.getElementById('helpText').innerHTML =
-    renderMarkdown(await response.text());
-}
-
-async function refreshSettings() {
-  const response = await fetch('/api/settings');
-  document.getElementById('settings').innerHTML =
-    await response.text();
-}
-
-updateLineNumbers();
-refreshHelp();
-refreshSettings();
-setInterval(getStatus, 1000);
-async function sendSettingAndWait(gcode) {
-  const response = await fetch(
-    '/api/cmd?g=' + encodeURIComponent(gcode)
-  );
-  const message = await response.text();
-  log(message);
-
-  if (!response.ok) {
-    throw new Error(message);
-  }
-
-  // /api/cmd queues the setting and M30. Wait for that short job to finish
-  // before sending another setting.
-  for (let i = 0; i < 120; i++) {
-    const status = await getStatus();
-    if (status && !status.busy) return;
-    await sleep(250);
-  }
-
-  throw new Error('Timed out waiting for the setting command.');
-}
-
-async function storeSteps() {
-  const x = document.getElementById('xNewSteps').textContent.trim();
-  const y = document.getElementById('yNewSteps').textContent.trim();
-
-  if (x === '—' || y === '—' || !(Number(x) > 0) || !(Number(y) > 0)) {
-    alert('Calculate both X and Y steps/mm before storing.');
-    return;
-  }
-
-  if (!confirm(`Store X=${x} and Y=${y} steps/mm?`)) return;
-
-  try {
-    await sendSettingAndWait('$100=' + x);
-    await sendSettingAndWait('$101=' + y);
-    log('Steps/mm settings stored.');
-    await refreshSettings();
-  } catch (error) {
-    log('Could not store steps/mm: ' + error.message);
-  }
-}
-
-function calculateSteps(axis) {
-  const key = String(axis).toLowerCase();
-  if (key !== 'x' && key !== 'y') return;
-
-  const saveButton =
-    document.getElementById('save' + key.toUpperCase() + 'Steps');
-  saveButton.disabled = true;
-
-  const current = Number(
-    document.getElementById(key + 'CurrentSteps').textContent
-  );
-  const commanded = Number(
-    document.getElementById(key + 'CommandDistance').value
-  );
-  const measured = Number(
-    document.getElementById(key + 'MeasuredDistance').value
-  );
-
-  if (!(current > 0) || !(commanded > 0) || !(measured > 0)) {
-    alert('Enter positive numbers for both distances.');
-    return;
-  }
-
-  const result = current * commanded / measured;
-  document.getElementById(key + 'NewSteps').textContent =
-    result.toFixed(2);
-  saveButton.disabled = false;
-}
-
-</script>
 <script src="/svg-converter.js"></script>
-<script>
-async function generateSvgGcode() {
-  const input = document.getElementById('svgFile');
-  const message = document.getElementById('svgMessage');
-  const file = input.files && input.files[0];
-
-  if (!file) {
-    message.textContent = 'Choose an SVG file first.';
-    return;
-  }
-
-  // Preview is rendered locally by the browser; no internet or upload needed.
-  const preview = document.getElementById('svgPreview');
-  if (preview.dataset.url) URL.revokeObjectURL(preview.dataset.url);
-  preview.dataset.url = URL.createObjectURL(file);
-  preview.src = preview.dataset.url;
-  preview.style.display = 'block';
-
-  const editor = document.getElementById('program');
-  if (editor.value.trim()) {
-    const answer = confirm(
-      'The G-code editor is not empty. Save/download its contents before replacing it?'
-    );
-    if (answer) saveFile();
-  }
-
-  message.textContent = 'Converting…';
-
-  try {
-    const result = await SvgConverter.convert(
-      file, 225, 325,
-      document.getElementById('svgMode').value
-    );
-
-    editor.value = result.gcode;
-    updateLineNumbers();
-    showTab('file');
-
-    message.textContent = result.warning || 'G-code generated.';
-    log('Generated G-code from ' + file.name);
-    if (result.warning) log(result.warning);
-  } catch (error) {
-    message.textContent = 'SVG conversion failed: ' + error.message;
-    log('SVG conversion failed: ' + error.message);
-  }
-}
-async function storeSteps(axis) {
-  const isX = axis === 'X';
-  const valueId = isX ? 'xNewSteps' : 'yNewSteps';
-  const buttonId = isX ? 'saveXSteps' : 'saveYSteps';
-  const setting = isX ? '$100=' : '$101=';
-  const value = document.getElementById(valueId).textContent.trim();
-  const button = document.getElementById(buttonId);
-
-  if (!(Number(value) > 0)) return;
-
-  button.disabled = true; // Dim it while saving, too.
-
-  try {
-    await sendSettingAndWait(setting + value);
-    log(`${axis} steps/mm stored.`);
-    await refreshSettings();
-  } catch (error) {
-    button.disabled = false; // Allow retry if the save failed.
-    log(`Could not store ${axis} steps/mm: ` + error.message);
-  }
-}
-</script>
+<script src="/app.js"></script>
 </body>
 </html>
 )HTML";
@@ -681,6 +237,10 @@ void webBegin(Gcode& gcode) {
     server.send_P(200, "text/html", PAGE);
   });
 
+  server.on("/app.js", HTTP_GET, []() {
+    server.send_P(200, "application/javascript", WEB_JS);
+  });
+
   server.on("/api/status", HTTP_GET, []() {
     server.send(200, "application/json", parser->webStatus());
   });
@@ -699,15 +259,13 @@ void webBegin(Gcode& gcode) {
     html += "<th>Current value</th>";
     html += "<th>G-code command or how to change</th></tr>";
 
-    html += "<tr><td>X steps/mm</td><td>";
+    html += "<tr><td>X steps/mm</td><td id='xStepsSetting'>";
     html += String(parser->xStepsPerMm(), 2);
-    html += "</td><td>Edit <code>Config.h</code> and rebuild; ";
-    html += "there is no runtime G-code setter.</td></tr>";
+    html += "</td><td>Set with <code>$100=value</code>.</td></tr>";
 
-    html += "<tr><td>Y steps/mm</td><td>";
+    html += "<tr><td>Y steps/mm</td><td id='yStepsSetting'>";
     html += String(parser->yStepsPerMm(), 2);
-    html += "</td><td>Edit <code>Config.h</code> and rebuild; ";
-    html += "there is no runtime G-code setter.</td></tr>";
+    html += "</td><td>Set with <code>$101=value</code>.</td></tr>";
 
     html += "<tr><td>Maximum feed limit</td><td>";
     html += String(MAX_FEED_MM_MIN, 0);
@@ -718,8 +276,8 @@ void webBegin(Gcode& gcode) {
     html += String(HOMING_FEED_MM_MIN, 0);
     html += " mm/min</td><td>Edit <code>Config.h</code>; ";
     html += "run homing with <code>G28</code>.</td></tr>";
-    
-     html += "<tr><td>X maximum rate ($110)</td><td>";
+
+    html += "<tr><td>X maximum rate ($110)</td><td>";
     html += String(parser->xMaxRate(), 2);
     html += " mm/min</td><td>Set with <code>$110=value</code>.</td></tr>";
 
@@ -743,8 +301,7 @@ void webBegin(Gcode& gcode) {
     html += "<code>G20</code> inches.</td></tr>";
 
     html += "<tr><td>Positioning mode</td><td>Selected by the job</td>";
-    html += "<td><code>G90</code> absolute; ";
-    html += "<code>G91</code> relative.</td></tr>";
+    html += "<td><code>G90</code> absolute; <code>G91</code> relative.</td></tr>";
 
     html += "<tr><td>Move feed</td><td>Per command</td>";
     html += "<td>Example: <code>G1 X20 Y10 F600</code>.</td></tr>";
@@ -755,27 +312,31 @@ void webBegin(Gcode& gcode) {
 
     html += "</table>";
 
-        html += "<h3>Steps/mm calibration</h3>";
+    html += "<h3>Steps/mm calibration</h3>";
     html += "<p>Enter the commanded distance and the distance actually measured. ";
     html += "Calculate each axis separately.</p>";
 
     html += "<table>";
     html += "<tr><th>Axis</th><th>Current steps/mm</th>";
     html += "<th>Commanded distance (mm)</th>";
-    html += "<th>Measured distance (mm)</th><th></th><th>New steps/mm</th></tr>";
+    html += "<th>Measured distance (mm)</th><th>Calculate</th>";
+    html += "<th>New steps/mm</th><th>Save</th></tr>";
 
     html += "<tr><td>X</td><td id='xCurrentSteps'>";
     html += String(parser->xStepsPerMm(), 2);
     html += "</td><td><input id='xCommandDistance' type='number' min='0.001' step='any'></td>";
     html += "<td><input id='xMeasuredDistance' type='number' min='0.001' step='any'></td>";
     html += "<td><button type='button' onclick=\"calculateSteps('x')\">Calculate</button></td>";
-   html += "<td id='xNewSteps'>—</td><td><button id='saveXSteps' type='button' disabled onclick=\"storeSteps('X')\">Save X</button></td></tr>";
+    html += "<td id='xNewSteps'>—</td>";
+    html += "<td><button id='saveXSteps' type='button' disabled onclick=\"storeSteps('X')\">Save X</button></td></tr>";
+
     html += "<tr><td>Y</td><td id='yCurrentSteps'>";
     html += String(parser->yStepsPerMm(), 2);
     html += "</td><td><input id='yCommandDistance' type='number' min='0.001' step='any'></td>";
     html += "<td><input id='yMeasuredDistance' type='number' min='0.001' step='any'></td>";
-   html += "<td><button type='button' onclick=\"calculateSteps('y')\">Calculate</button></td><td><button id='saveYSteps' type='button' disabled onclick=\"storeSteps('Y')\">Save Y</button></td>";
-     html += "<td id='yNewSteps'>—</td></tr>";
+    html += "<td><button type='button' onclick=\"calculateSteps('y')\">Calculate</button></td>";
+    html += "<td id='yNewSteps'>—</td>";
+    html += "<td><button id='saveYSteps' type='button' disabled onclick=\"storeSteps('Y')\">Save Y</button></td></tr>";
     html += "</table>";
 
     server.send(200, "text/html", html);
@@ -808,18 +369,18 @@ void webBegin(Gcode& gcode) {
   });
 
   server.on("/api/cmd", HTTP_GET, []() {
-    String command = server.arg("g");
-  command.trim();
-
-  if (command == "$" || command == "$$") {
-    String response = parser->settings();
-    response += "\nok";
-    server.send(200, "text/plain", response);
-    return;
-    
-  }
     if (!server.hasArg("g")) {
       sendError(400, "Missing command");
+      return;
+    }
+
+    String command = server.arg("g");
+    command.trim();
+
+    if (command == "$" || command == "$$") {
+      String response = parser->settings();
+      response += "\nok";
+      server.send(200, "text/plain", response);
       return;
     }
 
@@ -833,7 +394,7 @@ void webBegin(Gcode& gcode) {
       return;
     }
 
-    if (!parser->enqueue(server.arg("g"), Gcode::WEB) ||
+    if (!parser->enqueue(command, Gcode::WEB) ||
         !parser->enqueue("M30", Gcode::WEB)) {
       sendError(429, "Queue full or controller busy");
       return;
