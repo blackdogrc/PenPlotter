@@ -352,56 +352,52 @@ async function storeSteps(axis) {
 }
 
 function calculateSteps(axis) {
-  const key = String(axis).toLowerCase();
-  if (key !== 'x' && key !== 'y') return;
+  const key = String(axis ?? '').toLowerCase();
+  if (key !== 'x' && key !== 'y') {
+    console.error(`calculateSteps: invalid axis "${axis}"`);
+    return;
+  }
 
-  const saveButton =
-    document.getElementById('save' + key.toUpperCase() + 'Steps');
+  const getElement = (id) => {
+    const element = document.getElementById(id);
+    if (!element) console.error(`calculateSteps: missing #${id}`);
+    return element;
+  };
+
+  const saveButton = getElement(`save${key.toUpperCase()}Steps`);
+  const currentElement = getElement(`${key}CurrentSteps`);
+  const commandedElement = getElement(`${key}CommandDistance`);
+  const measuredElement = getElement(`${key}MeasuredDistance`);
+  const resultElement = getElement(`${key}NewSteps`);
+
+  // If required page elements are missing, stop safely.
+  if (!saveButton || !currentElement || !commandedElement ||
+      !measuredElement || !resultElement) {
+    return;
+  }
+
   saveButton.disabled = true;
 
-  const current = Number(
-    document.getElementById(key + 'CurrentSteps').textContent
-  );
-  const commanded = Number(
-    document.getElementById(key + 'CommandDistance').value
-  );
-  const measured = Number(
-    document.getElementById(key + 'MeasuredDistance').value
-  );
+  const current = Number(currentElement.textContent.trim());
+  const commanded = Number(commandedElement.value);
+  const measured = Number(measuredElement.value);
 
-  if (!(current > 0) || !(commanded > 0) || !(measured > 0) ||
-      !Number.isFinite(current) || !Number.isFinite(commanded) ||
-      !Number.isFinite(measured)) {
-    alert('Enter positive numbers for both distances.');
+  if (![current, commanded, measured].every(
+    value => Number.isFinite(value) && value > 0
+  )) {
+    resultElement.textContent = '—';
     return;
   }
 
   const result = current * commanded / measured;
-  document.getElementById(key + 'NewSteps').textContent =
-    result.toFixed(2);
-  saveButton.disabled = false;
-}
-const id = axis + suffix;
-const element = document.getElementById(id);
 
-
-for (const axis of ['x', 'y']) {
-  for (const suffix of ['CommandDistance', 'MeasuredDistance']) {
-    const id = axis + suffix;
-    const element = document.getElementById(id);
-
-    if (!element) {
-      console.error(`Missing element: #${id}`);
-      continue;
-    }
-
-    element.addEventListener('input', () => {
-      document.getElementById(
-        'save' + axis.toUpperCase() + 'Steps'
-      ).disabled = true;
-      document.getElementById(axis + 'NewSteps').textContent = '—';
-    });
+  if (!Number.isFinite(result)) {
+    resultElement.textContent = '—';
+    return;
   }
+
+  resultElement.textContent = result.toFixed(2);
+  saveButton.disabled = false;
 }
 
 
@@ -430,7 +426,7 @@ async function generateSvgGcode() {
     if (answer) saveFile();
   }
 
-  message.textContent = 'Converting…';
+  message.textContent = 'Converting...';
 
   try {
     const result = await SvgConverter.convert(
