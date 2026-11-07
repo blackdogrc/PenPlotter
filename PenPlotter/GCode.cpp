@@ -142,7 +142,9 @@ bool Gcode::executeLine(const String& input) {
     line = line.substring(0, comment);
     line.trim();
   }
+
   if (!line.length()) return true;
+
   // Runtime steps-per-mm settings.
   if (line.startsWith("$100=")) {
     const float x = line.substring(5).toFloat();
@@ -153,6 +155,7 @@ bool Gcode::executeLine(const String& input) {
     const float y = line.substring(5).toFloat();
     return motion_.setStepsPerMm(motion_.xStepsPerMm(), y);
   }
+
   if (line.startsWith("$110=")) {
     const float x = line.substring(5).toFloat();
     return motion_.setMaxRates(x, motion_.yMaxRate());
@@ -167,6 +170,7 @@ bool Gcode::executeLine(const String& input) {
     const float rate = line.substring(4).toFloat();
     return motion_.setHomingSeekRate(rate);
   }
+
   // Units and distance mode.
   if (hasCode(line, "G20")) inches_ = true;
   if (hasCode(line, "G21")) inches_ = false;
@@ -175,38 +179,64 @@ bool Gcode::executeLine(const String& input) {
 
   // Pen commands: M3/M4 down; M5/M9 up.
   if (hasCode(line, "M5") || hasCode(line, "M9")) motion_.pen(true);
-  if (hasCode(line, "M3 ") || line == "M3" || hasCode(line, "M4 ") || line == "M4") motion_.pen(false);
+
+  if (hasCode(line, "M3 ") || line == "M3" ||
+      hasCode(line, "M4 ") || line == "M4") {
+    motion_.pen(false);
+  }
 
   float value;
-  if (wordValue(line, 'F', value) && value > 0) feed_ = value;
+
+  // F remains modal for G1 moves.
+  if (wordValue(line, 'F', value) && value > 0) {
+    feed_ = value;
+  }
 
   if (hasCode(line, "G28")) return motion_.home();
 
-  if (wordValue(line, 'Z', value)) motion_.pen(value > 0);
+  if (wordValue(line, 'Z', value)) {
+    motion_.pen(value > 0);
+  }
 
   // G92 sets the current coordinate without moving.
   if (hasCode(line, "G92")) {
-    float x = motion_.x(), y = motion_.y();
+    float x = motion_.x();
+    float y = motion_.y();
     const float scale = inches_ ? 25.4f : 1.0f;
+
     if (wordValue(line, 'X', value)) x = value * scale;
     if (wordValue(line, 'Y', value)) y = value * scale;
+
     motion_.setPosition(x, y);
     return true;
   }
 
-  const bool move = hasCode(line, "G0") || hasCode(line, "G1");
-  if (!move) return true;
+  const bool rapidMove = hasCode(line, "G0");
+  const bool linearMove = hasCode(line, "G1");
 
-  float x = motion_.x(), y = motion_.y();
+  if (!rapidMove && !linearMove) return true;
+
+  float x = motion_.x();
+  float y = motion_.y();
   const float scale = inches_ ? 25.4f : 1.0f;
 
-  if (wordValue(line, 'X', value))
+  if (wordValue(line, 'X', value)) {
     x = absolute_ ? value * scale : x + value * scale;
-  if (wordValue(line, 'Y', value))
-    y = absolute_ ? value * scale : y + value * scale;
+  }
 
-  return motion_.moveTo(x, y, feed_ * scale);
+  if (wordValue(line, 'Y', value)) {
+    y = absolute_ ? value * scale : y + value * scale;
+  }
+
+  // G0 requests the configured rapid maximum.
+  // Motion::moveTo() caps that request to the X/Y max rates.
+  // G1 uses the explicit or modal F value.
+  const float requestedFeed =
+      rapidMove ? MAX_FEED_MM_MIN : feed_ * scale;
+
+  return motion_.moveTo(x, y, requestedFeed);
 }
+
 
 String Gcode::status() {
   return String("<") + motion_.state()

@@ -54,7 +54,7 @@ class SvgConverter {
     ];
   }
 
-  static async convert(file, width, height, mode) {
+  static async convert(file, width, height, mode,drawingFeed) {
     const source = await file.text();
     const doc = new DOMParser().parseFromString(source, 'image/svg+xml');
 
@@ -197,7 +197,7 @@ class SvgConverter {
         const by = (height - b.y).toFixed(3);
 
         out.push(`M5`, `G0 X${ax} Y${ay}`, `M3`,
-                 `G1 X${bx} Y${by} F600`);
+                 `G1 X${bx} Y${by} F${Math.round(drawingFeed)}`);
         drawnSegments++;
       }
     }

@@ -321,11 +321,29 @@ async function setDebugLogging(enabled) {
   }
 }
 
+function previewSvg(input) {
+  const preview = document.getElementById('svgPreview');
+  const message = document.getElementById('svgMessage');
 
-document.getElementById("debugLogging")
-  .addEventListener("change", event => {
-    setDebugLogging(event.target.checked);
-  });
+  if (preview.dataset.url) {
+    URL.revokeObjectURL(preview.dataset.url);
+    delete preview.dataset.url;
+  }
+
+  const file = input.files && input.files[0];
+  if (!file) {
+    preview.removeAttribute('src');
+    preview.style.display = 'none';
+    return;
+  }
+
+  preview.dataset.url = URL.createObjectURL(file);
+  preview.src = preview.dataset.url;
+  preview.style.display = 'block';
+  message.textContent = 'SVG loaded. Ready to generate G-code.';
+}
+
+
   
 async function setOwnershipLock(enabled) {
   const checkbox = document.getElementById('ownershipLock');
@@ -351,7 +369,7 @@ async function setOwnershipLock(enabled) {
 async function refreshSettings() {
   const response = await fetch('/api/settings');
   document.getElementById('settings').innerHTML =
-    await response.text();
+    await response.text(); 
 }
 
 async function sendSettingAndWait(gcode) {
@@ -450,6 +468,35 @@ function calculateSteps(axis) {
   saveButton.disabled = false;
 }
 
+const DRAWING_FEED_KEY = 'drawingFeedRate';
+const DEFAULT_DRAWING_FEED = 600;
+const MAX_DRAWING_FEED = 1000;
+
+function loadDrawingFeedRate() {
+  const input = document.getElementById('drawingFeedRate');
+  if (!input) return;
+
+  const saved = Number(localStorage.getItem(DRAWING_FEED_KEY));
+  if (Number.isFinite(saved) && saved >= 1 && saved <= MAX_DRAWING_FEED) {
+    input.value = String(saved);
+  }
+}
+
+function saveDrawingFeedRate() {
+  const input = document.getElementById('drawingFeedRate');
+  const value = Number(input.value);
+
+  if (!Number.isFinite(value) || value < 1 || value > MAX_DRAWING_FEED) {
+    input.setCustomValidity('Enter a feed from 1 to 1000 mm/min.');
+    input.reportValidity();
+    return false;
+  }
+
+  input.setCustomValidity('');
+  input.value = String(Math.round(value));
+  localStorage.setItem(DRAWING_FEED_KEY, input.value);
+  return true;
+}
 
 
 async function generateSvgGcode() {
@@ -461,6 +508,11 @@ async function generateSvgGcode() {
     message.textContent = 'Choose an SVG file first.';
     return;
   }
+  if (!saveDrawingFeedRate()) return;
+
+  const drawingFeed = Number(
+    document.getElementById('drawingFeedRate').value
+  );
 
   const preview = document.getElementById('svgPreview');
   if (preview.dataset.url) URL.revokeObjectURL(preview.dataset.url);
@@ -481,7 +533,8 @@ async function generateSvgGcode() {
   try {
     const result = await SvgConverter.convert(
       file, 225, 325,
-      document.getElementById('svgMode').value
+      document.getElementById('svgMode').value,
+      drawingFeed
     );
 
     editor.value = result.gcode;

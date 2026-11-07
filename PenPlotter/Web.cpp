@@ -175,10 +175,18 @@ pre{white-space:pre-wrap;background:#eee;padding:10px;max-height:180px;overflow:
   <h3>G-code</h3>
 
   <p>
-    <input type="file" accept=".gcode,.nc,.txt" onchange="loadFile(this)">
+    <input id="svgFile" type="file" accept=".svg,image/svg+xml"
+       onchange="previewSvg(this)">
     <button onclick="saveFile()">Save / download</button>
   </p>
-
+<p>
+  <label>
+    Drawing feed (mm/min):
+    <input id="drawingFeedRate" type="number"
+           min="1" max="1000" step="10" value="600"
+           onchange="saveDrawingFeedRate()">
+  </label>
+</p>
   <div class="editor">
     <pre id="lineNumbers" aria-hidden="true">1</pre>
     <textarea id="program" spellcheck="false" wrap="off"
@@ -367,7 +375,7 @@ server.on("/api/status", HTTP_GET, []() {
     html += "onchange='setDebugLogging(this.checked)'> Enabled</label>";
     html += "</td><td>Writes additional motion and queue diagnostics.</td></tr>";
 
-    html += "</table>";
+    html += "</table>"; 
 
     html += "<h3>Steps/mm calibration</h3>";
     html += "<p>Enter the commanded distance and the distance actually measured. ";
@@ -399,6 +407,7 @@ server.on("/api/status", HTTP_GET, []() {
     server.send(200, "text/html", html);
   });
   server.on("/api/ownership-lock", HTTP_POST, []() {
+    Debugger::log("API POST /api/ownership-lock");
     if (!server.hasArg("enabled")) {
       sendError(400, "Missing enabled value");
       return;
@@ -417,6 +426,7 @@ server.on("/api/status", HTTP_GET, []() {
                   : "{\"enabled\":false}");
   });
 server.on("/api/debug-logging", HTTP_POST, []() {
+  Debugger::log("API POST /api/debug-logging");
   if (!server.hasArg("enabled")) {
     sendError(400, "Missing enabled value");
     return;
@@ -439,6 +449,7 @@ server.on("/api/debug-logging", HTTP_POST, []() {
 });
 
   server.on("/api/start", HTTP_GET, []() {
+    Debugger::log("API GET /api/start");
     if (!parser->claimWeb()) {
       sendError(409, "Controller is owned by USB/UGS");
       return;
@@ -447,6 +458,7 @@ server.on("/api/debug-logging", HTTP_POST, []() {
   });
 
   server.on("/api/line", HTTP_GET, []() {
+    Debugger::log("API GET /api/line");
     if (!server.hasArg("g")) {
       sendError(400, "Missing G-code line");
       return;
@@ -465,6 +477,7 @@ server.on("/api/debug-logging", HTTP_POST, []() {
   });
 
   server.on("/api/cmd", HTTP_GET, []() {
+    Debugger::log("API GET /api/cmd");
     if (!server.hasArg("g")) {
       sendError(400, "Missing command");
       return;
@@ -499,6 +512,7 @@ server.on("/api/debug-logging", HTTP_POST, []() {
   });
 
   server.on("/api/jog", HTTP_GET, []() {
+    Debugger::log("API GET /api/jog");
     if (parser->busy()) {
       sendError(409, "Wait for the current job to finish");
       return;
@@ -523,6 +537,7 @@ server.on("/api/debug-logging", HTTP_POST, []() {
   });
 
   server.on("/api/pause", HTTP_GET, []() {
+    Debugger::log("API GET /api/pause");
     if (parser->pause()) {
       server.send(200, "text/plain", "Paused");
     } else {
@@ -531,11 +546,13 @@ server.on("/api/debug-logging", HTTP_POST, []() {
   });
 
   server.on("/api/resume", HTTP_GET, []() {
+    Debugger::log("API GET /api/resume");
     parser->resume();
     server.send(200, "text/plain", "Resumed");
   });
 
   server.on("/api/stop", HTTP_GET, []() {
+    Debugger::log("API GET /api/stop");
     parser->stop();
     server.send(200, "text/plain", "Stopped; queue cleared; pen up");
   });
