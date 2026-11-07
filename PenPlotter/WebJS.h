@@ -298,6 +298,56 @@ async function refreshHelp() {
     renderMarkdown(await response.text());
 }
 
+async function setDebugLogging(enabled) {
+  const status = document.getElementById("debugLoggingStatus");
+
+  try {
+    // Use the same request style and response handling as setOwnershipLock().
+    const response = await fetch("/api/debug", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    status.textContent = enabled ? "Debug logging on" : "Debug logging off";
+  } catch (err) {
+    // Revert the checkbox so it reflects the firmware's known state.
+    document.getElementById("debugLogging").checked = !enabled;
+    status.textContent = "Could not update debug setting";
+    console.error("Debug setting failed:", err);
+  }
+}
+
+document.getElementById("debugLogging")
+  .addEventListener("change", event => {
+    setDebugLogging(event.target.checked);
+  });
+  
+async function setOwnershipLock(enabled) {
+  const checkbox = document.getElementById('ownershipLock');
+  try {
+    const response = await fetch('/api/ownership-lock', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'enabled=' + (enabled ? '1' : '0')
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Request failed');
+
+    checkbox.checked = result.enabled;
+    log('USB/web ownership lock ' +
+        (result.enabled ? 'enabled' : 'disabled'));
+  } catch (error) {
+    checkbox.checked = !enabled;
+    log('Could not change ownership lock: ' + error);
+  }
+}
+
 async function refreshSettings() {
   const response = await fetch('/api/settings');
   document.getElementById('settings').innerHTML =
@@ -452,4 +502,3 @@ refreshHelp();
 refreshSettings();
 setInterval(getStatus, 1000);
 )JS";
-

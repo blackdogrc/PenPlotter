@@ -4,22 +4,23 @@
 #include <AccelStepper.h>
 #include <ESP32Servo.h>
 #include <math.h>
+#include "Debugger.h"
 
 static AccelStepper xMotor(AccelStepper::DRIVER, X_STEP_PIN, X_DIR_PIN);
 static AccelStepper yMotor(AccelStepper::DRIVER, Y_STEP_PIN, Y_DIR_PIN);
 static Servo penServo;
-  
+
 void Motion::begin() {
   pinMode(X_MIN_PIN, INPUT_PULLUP);
-  pinMode(Y_MIN_PIN, INPUT_PULLUP); 
-  Preferences preferences;
-  if (preferences.begin("fergoplotter", true)) {
-      const float savedXRate =
-        preferences.getFloat("x_rate", MAX_FEED_MM_MIN);
+  pinMode(Y_MIN_PIN, INPUT_PULLUP);
+Preferences preferences;
+if (preferences.begin("fergoplotter", true)) {
+    const float savedXRate =
+      preferences.getFloat("x_rate", MAX_FEED_MM_MIN);
     const float savedYRate =
-        preferences.getFloat("y_rate", MAX_FEED_MM_MIN);
+      preferences.getFloat("y_rate", MAX_FEED_MM_MIN);
     const float savedHomeRate =
-        preferences.getFloat("home_rate", homingSeekRateMmMin_);
+      preferences.getFloat("home_rate", homingSeekRateMmMin_);
 
     const float savedX = preferences.getFloat("x_steps", X_STEPS_PER_MM);
     const float savedY = preferences.getFloat("y_steps", Y_STEPS_PER_MM);
@@ -33,14 +34,23 @@ void Motion::begin() {
     }
   }
 
-  xMotor.setMaxSpeed(3000);
-  yMotor.setMaxSpeed(3000);
+
+  //xMotor.setMaxSpeed(3000);
+  setMaxSpeed(xMotor,"X",3000);
+  setMaxSpeed(yMotor,"Y",3000);
   xMotor.setAcceleration(1500);
   yMotor.setAcceleration(1500);
 
   penServo.setPeriodHertz(50);
   penServo.attach(SERVO_PIN, 500, 2500);
   pen(true);  // Pen up
+  
+}
+
+void Motion::setMaxSpeed(AccelStepper& motor, String axis, int max) {
+  Debugger::log(String("Setting maxSpeed for motor ") +
+                axis + " to " + String(max));
+  motor.setMaxSpeed(max);
 }
 
 void Motion::service() {
@@ -63,9 +73,9 @@ bool Motion::moveTo(float xMm, float yMm, float feedMmMin) {
   const long yt = lroundf(yMm * yStepsPerMm_);
 
   const float dx =
-      (xt - xMotor.currentPosition()) / xStepsPerMm_;
+    (xt - xMotor.currentPosition()) / xStepsPerMm_;
   const float dy =
-      (yt - yMotor.currentPosition()) / yStepsPerMm_;
+    (yt - yMotor.currentPosition()) / yStepsPerMm_;
   const float distance = hypotf(dx, dy);
 
   if (distance < 0.001f) {
@@ -85,9 +95,10 @@ bool Motion::moveTo(float xMm, float yMm, float feedMmMin) {
 
   const float feed = limitedFeed / 60.0f;
 
-  xMotor.setMaxSpeed(max(1.0f, ux * feed * xStepsPerMm_));
-  yMotor.setMaxSpeed(max(1.0f, uy * feed * yStepsPerMm_));
-
+  //xMotor.setMaxSpeed(max(1.0f, ux * feed * xStepsPerMm_));
+  setMaxSpeed(xMotor,"X",max(1.0f, ux * feed * xStepsPerMm_));
+  //yMotor.setMaxSpeed(max(1.0f, uy * feed * yStepsPerMm_));
+setMaxSpeed(yMotor,"Y",max(1.0f, uy * feed * yStepsPerMm_));
   xMotor.moveTo(xt);
   yMotor.moveTo(yt);
   busy_ = true;
@@ -102,7 +113,8 @@ bool Motion::switchPressed(int pin) {
 bool Motion::home() {
   if (busy_) return false;
 
-  xMotor.setMaxSpeed(homingSeekRateMmMin_ / 60.0f * xStepsPerMm_);
+  //xMotor.setMaxSpeed(homingSeekRateMmMin_ / 60.0f * xStepsPerMm_);
+  setMaxSpeed(xMotor,"X",homingSeekRateMmMin_ / 60.0f * xStepsPerMm_);
   while (!switchPressed(X_MIN_PIN)) {
     xMotor.moveTo(xMotor.currentPosition() - 20);
     xMotor.run();
@@ -124,7 +136,8 @@ bool Motion::home() {
   }
   xMotor.setCurrentPosition(0);
 
-  yMotor.setMaxSpeed(homingSeekRateMmMin_ / 60.0f * yStepsPerMm_);
+  //yMotor.setMaxSpeed(homingSeekRateMmMin_ / 60.0f * yStepsPerMm_);
+  setMaxSpeed(yMotor,"Y",(homingSeekRateMmMin_ / 60.0f * yStepsPerMm_));
   while (!switchPressed(Y_MIN_PIN)) {
     yMotor.moveTo(yMotor.currentPosition() - 20);
     yMotor.run();
@@ -151,10 +164,19 @@ bool Motion::home() {
 }
 
 void Motion::setPosition(float xMm, float yMm) {
-  if (busy_) return;
+  if (busy_) {
+    Debugger::log("setPosition rejected: motion is busy");
+    return;
+  }
 
-  xMotor.setCurrentPosition(lroundf(xMm * xStepsPerMm_));
-  yMotor.setCurrentPosition(lroundf(yMm * yStepsPerMm_));
+  long pos = lroundf(xMm * xStepsPerMm_);
+  Debugger::log(String("setCurrentPosition X=") + String(pos));
+  xMotor.setCurrentPosition(pos);
+
+  pos = lroundf(yMm * yStepsPerMm_);
+  Debugger::log(String("setCurrentPosition Y=") + String(pos));
+  yMotor.setCurrentPosition(pos);
+
   xMm_ = xMm;
   yMm_ = yMm;
 }
@@ -202,8 +224,7 @@ void Motion::resume() {
 bool Motion::setStepsPerMm(float x, float y) {
   if (busy_) return false;
   if (!isfinite(x) || !isfinite(y)) return false;
-  if (x < 1.0f || x > 2000.0f ||
-      y < 1.0f || y > 2000.0f) return false;
+  if (x < 1.0f || x > 2000.0f || y < 1.0f || y > 2000.0f) return false;
 
   Preferences preferences;
   if (!preferences.begin("fergoplotter", false)) {
@@ -217,7 +238,7 @@ bool Motion::setStepsPerMm(float x, float y) {
   if (savedX != sizeof(float) || savedY != sizeof(float)) {
     return false;
   }
- 
+
   xStepsPerMm_ = x;
   yStepsPerMm_ = y;
 
@@ -230,8 +251,7 @@ bool Motion::setStepsPerMm(float x, float y) {
 bool Motion::setMaxRates(float x, float y) {
   if (busy_) return false;
   if (!isfinite(x) || !isfinite(y)) return false;
-  if (x < 1.0f || x > 10000.0f ||
-      y < 1.0f || y > 10000.0f) return false;
+  if (x < 1.0f || x > 10000.0f || y < 1.0f || y > 10000.0f) return false;
 
   Preferences preferences;
   if (!preferences.begin("fergoplotter", false)) return false;

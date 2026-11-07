@@ -4,3 +4,4 @@
 void webBegin(Gcode& gcode);
 void webService();
 
+static String pendingLog;

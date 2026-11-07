@@ -4,11 +4,18 @@
 
 class Gcode {
 public:
-  float xStepsPerMm() const { return motion_.xStepsPerMm(); }
-  float yStepsPerMm() const { return motion_.yStepsPerMm(); }
-  enum Source : uint8_t { NONE, USB, WEB };
+  float xStepsPerMm() const {
+    return motion_.xStepsPerMm();
+  }
+  float yStepsPerMm() const {
+    return motion_.yStepsPerMm();
+  }
+  enum Source : uint8_t { NONE,
+                          USB,
+                          WEB };
 
-  explicit Gcode(Motion& motion) : motion_(motion) {}
+  explicit Gcode(Motion& motion)
+    : motion_(motion) {}
 
   bool enqueue(const String& line, Source source, uint16_t lineNumber = 0);
   void service();
@@ -19,16 +26,42 @@ public:
   void stop();
 
   bool busy() const;
-  bool paused() const { return paused_; }
-  Source owner() const { return owner_; }
-  uint16_t currentLine() const { return currentLine_; }
-  String settings() const;
-
+  bool paused() const {
+    return paused_;
+  }
+  Source owner() const {
+    return owner_;
+  }
+  uint16_t currentLine() const {
+    return currentLine_;
+  }
+  static bool isActionableUsbCommand(const String& line);
+  bool ownershipLockEnabled() const {
+    return ownershipLockEnabled_;
+  }
+  void setOwnershipLockEnabled(bool enabled);
   String status();
   String webStatus();
-  float xMaxRate() const { return motion_.xMaxRate(); }
-  float yMaxRate() const { return motion_.yMaxRate(); }
-  float homingSeekRate() const { return motion_.homingSeekRate(); }
+  String settings() const;
+  float xMaxRate() const {
+    return motion_.xMaxRate();
+  }
+  float yMaxRate() const {
+    return motion_.yMaxRate();
+  }
+  float homingSeekRate() const {
+    return motion_.homingSeekRate();
+  }
+private:
+  bool ownershipLockEnabled_ = true;
+  unsigned long lastActivityMs_ = 0;
+
+
+
+
+
+
+
 
 private:
   static constexpr uint8_t QUEUE_SIZE = 24;
@@ -56,5 +89,4 @@ private:
 
   bool executeLine(const String& line);
   void clearQueue();
-  };
-
+};

@@ -2,13 +2,13 @@
 
 // EXAMPLE GPIOs ONLY: replace with pins available on your exact ESP32-C3 board.
 constexpr int X_STEP_PIN = 4;
-constexpr int X_DIR_PIN  = 5;
+constexpr int X_DIR_PIN = 5;
 constexpr int Y_STEP_PIN = 6;
-constexpr int Y_DIR_PIN  = 7;
+constexpr int Y_DIR_PIN = 7;
 
-constexpr int X_MIN_PIN  = 0;
-constexpr int Y_MIN_PIN  = 1;
-constexpr int SERVO_PIN  = 10;
+constexpr int X_MIN_PIN = 0;
+constexpr int Y_MIN_PIN = 1;
+constexpr int SERVO_PIN = 10;
 
 // Set true if your endstop connects the input to GND when pressed.
 constexpr bool ENDSTOPS_ACTIVE_LOW = true;
@@ -22,10 +22,13 @@ constexpr float HOMING_FEED_MM_MIN = 300.0f;
 constexpr float HOME_BACKOFF_MM = 3.0f;
 
 // Calibrate these for your pen linkage and servo.
-constexpr int PEN_UP_US = 1800;
+constexpr int PEN_UP_US = 1700;
 constexpr int PEN_DOWN_US = 1100;
 
 constexpr char WIFI_SSID[] = "FergieBot-pen-plotter";
 constexpr char WIFI_PASSWORD[] = "ferg1234";
+
+// Prevent USB and web commands from controlling the plotter simultaneously.
+constexpr bool CONTROL_SOURCE_LOCKING_ENABLED = true;
 
 

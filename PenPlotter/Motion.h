@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include "Config.h"
+#include <AccelStepper.h>
 
 class Motion {
 public:
@@ -26,6 +27,7 @@ public:
 
   void pause();
   void resume();
+  void setMaxSpeed(AccelStepper& motor, String axis, int max);
 
   float x() const { return xMm_; }
   float y() const { return yMm_; }
@@ -35,6 +37,7 @@ public:
   float yMaxRateMmMin_ = MAX_FEED_MM_MIN;
   float homingSeekRateMmMin_ = HOMING_FEED_MM_MIN;
 private:
+
   bool switchPressed(int pin);
   float xStepsPerMm_ = X_STEPS_PER_MM;// for steps calculator
   float yStepsPerMm_ = Y_STEPS_PER_MM;// for steps calculator

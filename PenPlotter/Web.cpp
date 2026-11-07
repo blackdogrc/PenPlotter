@@ -5,6 +5,7 @@
 #include <WebServer.h>
 #include "SvgConverter.h"
 #include "WebJS.h"
+#include "Debugger.h"
 
 static WebServer server(80);
 static Gcode* parser = nullptr;
@@ -309,6 +310,17 @@ void webBegin(Gcode& gcode) {
     html += "<tr><td>Pen commands</td><td>As commanded</td>";
     html += "<td><code>M3</code>/<code>M4</code> down; ";
     html += "<code>M5</code>/<code>M9</code> up.</td></tr>";
+    html += "<tr><td>USB / web ownership lock</td><td>";
+    html += "<label><input id='ownershipLock' type='checkbox' ";
+    if (parser->ownershipLockEnabled()) html += "checked ";
+    html += "onchange='setOwnershipLock(this.checked)'> Enabled</label>";
+    html += "</td><td>Prevents USB and web commands from controlling the plotter "
+            "at the same time. Resets to enabled after reboot.</td></tr>";
+    html += "<tr><td>Debug logging</td><td>";
+    html += "<label><input id='debugLogging' type='checkbox' ";
+    if (Debugger::isEnabled()) html += "checked ";
+    html += "onchange='setDebugLogging(this.checked)'> Enabled</label>";
+    html += "</td><td>Writes additional motion and queue diagnostics.</td></tr>";
 
     html += "</table>";
 
@@ -340,6 +352,42 @@ void webBegin(Gcode& gcode) {
     html += "</table>";
 
     server.send(200, "text/html", html);
+  });
+  server.on("/api/ownership-lock", HTTP_POST, []() {
+    if (!server.hasArg("enabled")) {
+      sendError(400, "Missing enabled value");
+      return;
+    }
+    server.on("/api/debug-logging", HTTP_POST, []() {
+      if (!server.hasArg("enabled")) {
+        server.send(400, "text/plain", "Missing enabled parameter");
+        return;
+      }
+
+      const String value = server.arg("enabled");
+      if (value != "0" && value != "1") {
+        server.send(400, "text/plain", "enabled must be 0 or 1");
+        return;
+      }
+
+      const bool enabled = (value == "1");
+      Debugger::setEnabled(enabled);
+
+      server.send(200, "text/plain",
+                  enabled ? "Debug logging enabled" : "Debug logging disabled");
+    });
+
+    const String value = server.arg("enabled");
+    if (value != "0" && value != "1") {
+      sendError(400, "enabled must be 0 or 1");
+      return;
+    }
+
+    parser->setOwnershipLockEnabled(value == "1");
+    server.send(200, "application/json",
+                parser->ownershipLockEnabled()
+                  ? "{\"enabled\":true}"
+                  : "{\"enabled\":false}");
   });
 
   server.on("/api/start", HTTP_GET, []() {
@@ -394,8 +442,7 @@ void webBegin(Gcode& gcode) {
       return;
     }
 
-    if (!parser->enqueue(command, Gcode::WEB) ||
-        !parser->enqueue("M30", Gcode::WEB)) {
+    if (!parser->enqueue(command, Gcode::WEB) || !parser->enqueue("M30", Gcode::WEB)) {
       sendError(429, "Queue full or controller busy");
       return;
     }
@@ -417,12 +464,9 @@ void webBegin(Gcode& gcode) {
     const float dx = server.arg("x").toFloat();
     const float dy = server.arg("y").toFloat();
 
-    String move = "G91 G0 X" + String(dx, 3) +
-                  " Y" + String(dy, 3) + " F600";
+    String move = "G91 G0 X" + String(dx, 3) + " Y" + String(dy, 3) + " F600";
 
-    if (!parser->enqueue(move, Gcode::WEB) ||
-        !parser->enqueue("G90", Gcode::WEB) ||
-        !parser->enqueue("M30", Gcode::WEB)) {
+    if (!parser->enqueue(move, Gcode::WEB) || !parser->enqueue("G90", Gcode::WEB) || !parser->enqueue("M30", Gcode::WEB)) {
       sendError(429, "Queue full or controller busy");
       return;
     }
@@ -454,3 +498,4 @@ void webBegin(Gcode& gcode) {
 void webService() {
   server.handleClient();
 }
+

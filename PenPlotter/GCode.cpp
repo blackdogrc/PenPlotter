@@ -1,6 +1,7 @@
 #include "Gcode.h"
 #include "Config.h"
 #include <math.h>
+#include "Debugger.h"
 
 static bool wordValue(const String& s, char letter, float& value) {
   const int i = s.indexOf(letter);
@@ -12,33 +13,60 @@ static bool wordValue(const String& s, char letter, float& value) {
 static bool hasCode(const String& s, const char* code) {
   return s.indexOf(code) >= 0;
 }
+static bool usbCommandClaimsOwnership(String line) {
+  line.trim();
+  line.toUpperCase();
 
+  const int comment = line.indexOf(';');
+  if (comment >= 0) line = line.substring(0, comment);
+  line.trim();
+
+  return hasCode(line, "G0") || hasCode(line, "G1") || hasCode(line, "G28") || line == "M3" || line.startsWith("M3 ") || line == "M4" || line.startsWith("M4 ") || line == "M5" || line.startsWith("M5 ") || line == "M9" || line.startsWith("M9 ") || line.indexOf('Z') >= 0;
+}
 bool Gcode::enqueue(const String& input, Source source, uint16_t lineNumber) {
   String line = input;
   line.trim();
-
   if (!line.length() || line == "?") return true;
-  if (owner_ != NONE && owner_ != source) return false;
+
+  if (ownershipLockEnabled_ && owner_ != NONE && owner_ != source) return false;
   if (count_ >= QUEUE_SIZE) return false;
 
-  // Claim control on the first queued command.
-  if (owner_ == NONE) owner_ = source;
+  if (ownershipLockEnabled_ && owner_ == NONE) {
+    // Web explicitly claims control for its job. USB setup/modal commands
+    // alone should not lock out web jogging.
+    if (source == WEB || usbCommandClaimsOwnership(line)) owner_ = source;
+  }
+
+  lastActivityMs_ = millis();
 
   Entry& e = queue_[tail_];
   e.text = line;
   e.lineNumber = lineNumber;
   e.endsJob = hasCode(line, "M2") || hasCode(line, "M30");
-
   tail_ = (tail_ + 1) % QUEUE_SIZE;
   ++count_;
   return true;
 }
 
+
 bool Gcode::claimWeb() {
+  if (!CONTROL_SOURCE_LOCKING_ENABLED) return true;
+
   if (owner_ != NONE && owner_ != WEB) return false;
   owner_ = WEB;
+  lastActivityMs_ = millis();
   return true;
 }
+void Gcode::setOwnershipLockEnabled(bool enabled) {
+  ownershipLockEnabled_ = enabled;
+  if (!enabled) {
+    owner_ = NONE;
+  } else if (owner_ != NONE) {
+    lastActivityMs_ = millis();
+  }
+  log('USB/web ownership lock ' + (enabled ? 'enabled' : 'disabled'));
+}
+
 
 bool Gcode::busy() const {
   return count_ > 0 || motion_.busy() || endPending_;
@@ -74,6 +102,10 @@ void Gcode::stop() {
 }
 
 void Gcode::service() {
+  if (ownershipLockEnabled_ && owner_ != NONE && count_ == 0 && !motion_.busy() && !endPending_ && millis() - lastActivityMs_ >= 2000) {
+    owner_ = NONE;
+  }
+
   if (motion_.busy()) return;
 
   if (endPending_) {
@@ -110,7 +142,7 @@ bool Gcode::executeLine(const String& input) {
     line.trim();
   }
   if (!line.length()) return true;
- // Runtime steps-per-mm settings.
+  // Runtime steps-per-mm settings.
   if (line.startsWith("$100=")) {
     const float x = line.substring(5).toFloat();
     return motion_.setStepsPerMm(x, motion_.yStepsPerMm());
@@ -120,7 +152,7 @@ bool Gcode::executeLine(const String& input) {
     const float y = line.substring(5).toFloat();
     return motion_.setStepsPerMm(motion_.xStepsPerMm(), y);
   }
-   if (line.startsWith("$110=")) {
+  if (line.startsWith("$110=")) {
     const float x = line.substring(5).toFloat();
     return motion_.setMaxRates(x, motion_.yMaxRate());
   }
@@ -142,8 +174,7 @@ bool Gcode::executeLine(const String& input) {
 
   // Pen commands: M3/M4 down; M5/M9 up.
   if (hasCode(line, "M5") || hasCode(line, "M9")) motion_.pen(true);
-  if (hasCode(line, "M3 ") || line == "M3" ||
-      hasCode(line, "M4 ") || line == "M4") motion_.pen(false);
+  if (hasCode(line, "M3 ") || line == "M3" || hasCode(line, "M4 ") || line == "M4") motion_.pen(false);
 
   float value;
   if (wordValue(line, 'F', value) && value > 0) feed_ = value;
@@ -178,9 +209,9 @@ bool Gcode::executeLine(const String& input) {
 
 String Gcode::status() {
   return String("<") + motion_.state()
-      + "|MPos:" + String(motion_.x(), 3)
-      + "," + String(motion_.y(), 3)
-      + "|FS:0," + String(feed_, 0) + ">";
+         + "|MPos:" + String(motion_.x(), 3)
+         + "," + String(motion_.y(), 3)
+         + "|FS:0," + String(feed_, 0) + ">";
 }
 
 String Gcode::webStatus() {
@@ -191,7 +222,8 @@ String Gcode::webStatus() {
   s += ",\"paused\":";
   s += paused_ ? "true" : "false";
   s += ",\"owner\":\"";
-  s += owner_ == USB ? "USB" : owner_ == WEB ? "WEB" : "NONE";
+  s += owner_ == USB ? "USB" : owner_ == WEB ? "WEB"
+                                             : "NONE";
   s += "\",\"line\":";
   s += String(currentLine_);
   s += ",\"x\":";
@@ -225,5 +257,7 @@ String Gcode::settings() const {
 
   return result;
 }
-
-
+static bool isActionableUsbCommand(const String& line) {
+  // Commands that can initiate movement or change the pen state.
+  return hasCode(line, "G0") || hasCode(line, "G1") || hasCode(line, "G28") || hasCode(line, "M3") || hasCode(line, "M4") || hasCode(line, "M5") || hasCode(line, "M9") || line.indexOf('Z') >= 0;
+}
