@@ -64,7 +64,8 @@ void Gcode::setOwnershipLockEnabled(bool enabled) {
   } else if (owner_ != NONE) {
     lastActivityMs_ = millis();
   }
-  log('USB/web ownership lock ' + (enabled ? 'enabled' : 'disabled'));
+Debugger::log(String("USB/web ownership lock ") +
+              (enabled ? "enabled" : "disabled"));
 }
 
 

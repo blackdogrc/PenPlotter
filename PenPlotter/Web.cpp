@@ -9,7 +9,44 @@
 
 static WebServer server(80);
 static Gcode* parser = nullptr;
+static void sendApiResponse(int code, const char* contentType,
+                            const String& body) {
+  if (code >= 400) {
+    Debugger::log(String("API response error ") + String(code) +
+                  ": " + body);
+  } else {
+    Debugger::log(String("API response ") + String(code) +
+                  ": " + body);
+  }
 
+  server.send(code, contentType, body);
+}
+
+static void sendError(int code, const char* message) {
+  sendApiResponse(code, "text/plain", String(message));
+}
+
+static String jsonEscape(const String& input) {
+  String output;
+  output.reserve(input.length() + 8);
+
+  for (size_t i = 0; i < input.length(); ++i) {
+    const char c = input[i];
+
+    switch (c) {
+      case '\"': output += "\\\""; break;
+      case '\\': output += "\\\\"; break;
+      case '\n': output += "\\n"; break;
+      case '\r': output += "\\r"; break;
+      case '\t': output += "\\t"; break;
+      default:
+        if (static_cast<uint8_t>(c) >= 0x20) output += c;
+        break;
+    }
+  }
+
+  return output;
+}
 static const char PAGE[] PROGMEM = R"HTML(
 <!doctype html>
 <html>
@@ -223,9 +260,7 @@ static const char HELP_TEXT[] =
   "- STOP clears queued motion and raises the pen.\n"
   "- USB/UGS and web motion control cannot control the plotter simultaneously.\n";
 
-static void sendError(int code, const char* message) {
-  server.send(code, "text/plain", message);
-}
+
 
 void webBegin(Gcode& gcode) {
   parser = &gcode;
@@ -512,25 +547,5 @@ void webService() {
   server.handleClient();
 }
 
-static String jsonEscape(const String& input) {
-  String output;
-  output.reserve(input.length() + 8);
 
-  for (size_t i = 0; i < input.length(); ++i) {
-    const char c = input[i];
-
-    switch (c) {
-      case '\"': output += "\\\""; break;
-      case '\\': output += "\\\\"; break;
-      case '\n': output += "\\n"; break;
-      case '\r': output += "\\r"; break;
-      case '\t': output += "\\t"; break;
-      default:
-        if (static_cast<uint8_t>(c) >= 0x20) output += c;
-        break;
-    }
-  }
-
-  return output;
-}
 
