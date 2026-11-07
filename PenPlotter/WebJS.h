@@ -122,7 +122,9 @@ async function getStatus() {
       status.state + ' | owner: ' + status.owner +
       ' | line: ' + status.line +
       ' | X: ' + status.x + ' Y: ' + status.y;
-
+    if (status.debug) {
+      status.debug.split('\n').filter(Boolean).forEach(line => log(line));
+    }
     updateLineNumbers(Number(status.line));
     return status;
   } catch (error) {
@@ -299,28 +301,26 @@ async function refreshHelp() {
 }
 
 async function setDebugLogging(enabled) {
-  const status = document.getElementById("debugLoggingStatus");
+  const checkbox = document.getElementById('debugLogging');
 
   try {
-    // Use the same request style and response handling as setOwnershipLock().
-    const response = await fetch("/api/debug", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled })
+    const response = await fetch('/api/debug-logging', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'enabled=' + (enabled ? '1' : '0')
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Request failed');
 
-    status.textContent = enabled ? "Debug logging on" : "Debug logging off";
-  } catch (err) {
-    // Revert the checkbox so it reflects the firmware's known state.
-    document.getElementById("debugLogging").checked = !enabled;
-    status.textContent = "Could not update debug setting";
-    console.error("Debug setting failed:", err);
+    checkbox.checked = result.enabled;
+    log('Debug logging ' + (result.enabled ? 'enabled' : 'disabled'));
+  } catch (error) {
+    checkbox.checked = !enabled;
+    log('Could not change debug logging: ' + error);
   }
 }
+
 
 document.getElementById("debugLogging")
   .addEventListener("change", event => {

@@ -242,9 +242,19 @@ void webBegin(Gcode& gcode) {
     server.send_P(200, "application/javascript", WEB_JS);
   });
 
-  server.on("/api/status", HTTP_GET, []() {
-    server.send(200, "application/json", parser->webStatus());
-  });
+server.on("/api/status", HTTP_GET, []() {
+  String status = parser->webStatus();
+  const String debug = Debugger::takePendingLog();
+
+  if (status.endsWith("}")) {
+    status.remove(status.length() - 1);
+    status += ",\"debug\":\"";
+    status += jsonEscape(debug);
+    status += "\"}";
+  }
+
+  server.send(200, "application/json", status);
+});
 
   server.on("/api/help", HTTP_GET, []() {
     server.send(200, "text/markdown", HELP_TEXT);
@@ -358,24 +368,6 @@ void webBegin(Gcode& gcode) {
       sendError(400, "Missing enabled value");
       return;
     }
-    server.on("/api/debug-logging", HTTP_POST, []() {
-      if (!server.hasArg("enabled")) {
-        server.send(400, "text/plain", "Missing enabled parameter");
-        return;
-      }
-
-      const String value = server.arg("enabled");
-      if (value != "0" && value != "1") {
-        server.send(400, "text/plain", "enabled must be 0 or 1");
-        return;
-      }
-
-      const bool enabled = (value == "1");
-      Debugger::setEnabled(enabled);
-
-      server.send(200, "text/plain",
-                  enabled ? "Debug logging enabled" : "Debug logging disabled");
-    });
 
     const String value = server.arg("enabled");
     if (value != "0" && value != "1") {
@@ -389,6 +381,27 @@ void webBegin(Gcode& gcode) {
                   ? "{\"enabled\":true}"
                   : "{\"enabled\":false}");
   });
+server.on("/api/debug-logging", HTTP_POST, []() {
+  if (!server.hasArg("enabled")) {
+    sendError(400, "Missing enabled value");
+    return;
+  }
+
+  const String value = server.arg("enabled");
+  if (value != "0" && value != "1") {
+    sendError(400, "enabled must be 0 or 1");
+    return;
+  }
+
+  const bool enabled = (value == "1");
+  Debugger::setEnabled(enabled);
+
+  server.send(
+    200,
+    "application/json",
+    enabled ? "{\"enabled\":true}" : "{\"enabled\":false}"
+  );
+});
 
   server.on("/api/start", HTTP_GET, []() {
     if (!parser->claimWeb()) {
@@ -497,5 +510,27 @@ void webBegin(Gcode& gcode) {
 
 void webService() {
   server.handleClient();
+}
+
+static String jsonEscape(const String& input) {
+  String output;
+  output.reserve(input.length() + 8);
+
+  for (size_t i = 0; i < input.length(); ++i) {
+    const char c = input[i];
+
+    switch (c) {
+      case '\"': output += "\\\""; break;
+      case '\\': output += "\\\\"; break;
+      case '\n': output += "\\n"; break;
+      case '\r': output += "\\r"; break;
+      case '\t': output += "\\t"; break;
+      default:
+        if (static_cast<uint8_t>(c) >= 0x20) output += c;
+        break;
+    }
+  }
+
+  return output;
 }
 

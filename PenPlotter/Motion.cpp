@@ -63,22 +63,42 @@ void Motion::service() {
     busy_ = false;
     xMm_ = xMotor.currentPosition() / xStepsPerMm_;
     yMm_ = yMotor.currentPosition() / yStepsPerMm_;
+
+    Debugger::log(String("Motion complete: X steps=") +
+                  String(xMotor.currentPosition()) +
+                  " Y steps=" + String(yMotor.currentPosition()));
   }
 }
 
+
 bool Motion::moveTo(float xMm, float yMm, float feedMmMin) {
-  if (busy_ || feedMmMin <= 0) return false;
+  if (busy_) {
+    Debugger::log("moveTo rejected: motion is already busy");
+    return false;
+  }
+
+  if (!isfinite(xMm) || !isfinite(yMm)) {
+    Debugger::log("moveTo rejected: X or Y position is not finite");
+    return false;
+  }
+
+  if (!isfinite(feedMmMin) || feedMmMin <= 0) {
+    Debugger::log(String("moveTo rejected: invalid feed ") +
+                  String(feedMmMin));
+    return false;
+  }
 
   const long xt = lroundf(xMm * xStepsPerMm_);
   const long yt = lroundf(yMm * yStepsPerMm_);
 
   const float dx =
-    (xt - xMotor.currentPosition()) / xStepsPerMm_;
+      (xt - xMotor.currentPosition()) / xStepsPerMm_;
   const float dy =
-    (yt - yMotor.currentPosition()) / yStepsPerMm_;
+      (yt - yMotor.currentPosition()) / yStepsPerMm_;
   const float distance = hypotf(dx, dy);
 
   if (distance < 0.001f) {
+    Debugger::log("moveTo accepted as no-op: target is already reached");
     xMm_ = xMm;
     yMm_ = yMm;
     return true;
@@ -87,23 +107,30 @@ bool Motion::moveTo(float xMm, float yMm, float feedMmMin) {
   const float ux = fabsf(dx / distance);
   const float uy = fabsf(dy / distance);
 
-  // Limit the overall feed to satisfy both axis limits while preserving
-  // the requested direction of travel.
   float limitedFeed = min(feedMmMin, MAX_FEED_MM_MIN);
   if (ux > 0.0f) limitedFeed = min(limitedFeed, xMaxRateMmMin_ / ux);
   if (uy > 0.0f) limitedFeed = min(limitedFeed, yMaxRateMmMin_ / uy);
 
   const float feed = limitedFeed / 60.0f;
+  const float xSpeed = max(1.0f, ux * feed * xStepsPerMm_);
+  const float ySpeed = max(1.0f, uy * feed * yStepsPerMm_);
 
-  //xMotor.setMaxSpeed(max(1.0f, ux * feed * xStepsPerMm_));
-  setMaxSpeed(xMotor,"X",max(1.0f, ux * feed * xStepsPerMm_));
-  //yMotor.setMaxSpeed(max(1.0f, uy * feed * yStepsPerMm_));
-setMaxSpeed(yMotor,"Y",max(1.0f, uy * feed * yStepsPerMm_));
+  Debugger::log(String("moveTo target: X=") + String(xt) +
+                " Y=" + String(yt) +
+                " feed=" + String(limitedFeed) +
+                " Xspeed=" + String(xSpeed) +
+                " Yspeed=" + String(ySpeed));
+
+  setMaxSpeed(xMotor, "X", xSpeed);
+  setMaxSpeed(yMotor, "Y", ySpeed);
   xMotor.moveTo(xt);
   yMotor.moveTo(yt);
   busy_ = true;
+
+  Debugger::log("moveTo accepted: motor targets set; busy=true");
   return true;
 }
+
 
 bool Motion::switchPressed(int pin) {
   const int value = digitalRead(pin);
