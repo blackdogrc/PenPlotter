@@ -36,10 +36,10 @@ if (preferences.begin("fergoplotter", true)) {
 
 
   //xMotor.setMaxSpeed(3000);
-  setMaxSpeed(xMotor,"X",3000);
-  setMaxSpeed(yMotor,"Y",3000);
-  xMotor.setAcceleration(1500);
-  yMotor.setAcceleration(1500);
+  setMaxSpeed(xMotor,"X",MAX_FEED_MM_MIN);
+  setMaxSpeed(yMotor,"Y",MAX_FEED_MM_MIN);
+  xMotor.setAcceleration(MAX_ACCELERATION);
+  yMotor.setAcceleration(MAX_ACCELERATION);
 
   penServo.setPeriodHertz(50);
   penServo.attach(SERVO_PIN, 500, 2500);
@@ -77,6 +77,10 @@ bool Motion::moveTo(float xMm, float yMm, float feedMmMin) {
     return false;
   }
 
+  if (feedMmMin > MAX_FEED_MM_MIN) {
+    Debugger::log("Feed WAS "+String(feedMmMin)+" but capped at MAX_FEED_MM_MIN="+String(MAX_FEED_MM_MIN));
+    feedMmMin = MAX_FEED_MM_MIN;
+  }
   if (!isfinite(xMm) || !isfinite(yMm)) {
     Debugger::log("moveTo rejected: X or Y position is not finite");
     return false;

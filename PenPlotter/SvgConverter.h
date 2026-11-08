@@ -93,6 +93,61 @@ static simplifyAxisAligned(points) {
 
   return result;
 }
+static joinContinuousSegments(lines) {
+  const result = [];
+  let previousEnd = null;
+
+  const parseXY = (line, command) => {
+    const match = line.match(
+      new RegExp(
+        '^' + command +
+        '\\s+X([-+]?\\d+(?:\\.\\d+)?)' +
+        '\\s+Y([-+]?\\d+(?:\\.\\d+)?)\\b'
+      )
+    );
+    return match
+      ? { x: Number(match[1]), y: Number(match[2]) }
+      : null;
+  };
+
+  const samePoint = (a, b) =>
+    Math.abs(a.x - b.x) <= 0.001 &&
+    Math.abs(a.y - b.y) <= 0.001;
+
+  for (let i = 0; i < lines.length;) {
+    // Recognize the converter's per-segment block:
+    // M5, G0 start, M3, G1 end.
+    if (
+      lines[i] === 'M5' &&
+      i + 3 < lines.length &&
+      lines[i + 2] === 'M3'
+    ) {
+      const start = parseXY(lines[i + 1], 'G0');
+      const end = parseXY(lines[i + 3], 'G1');
+
+      if (start && end) {
+        if (previousEnd && samePoint(previousEnd, start)) {
+          // Stay pen-down and omit this segment's M5/G0/M3.
+          result.push(lines[i + 3]);
+        } else {
+          // Keep the pen-up/reposition/pen-down for a real gap.
+          result.push(lines[i], lines[i + 1], lines[i + 2], lines[i + 3]);
+        }
+
+        previousEnd = end;
+        i += 4;
+        continue;
+      }
+    }
+
+    // Other commands, including the final M5/M30, are kept unchanged.
+    result.push(lines[i]);
+    previousEnd = null;
+    i++;
+  }
+
+  return result;
+}
 
   static async convert(file, width, height, mode,drawingFeed) {
     const source = await file.text();
@@ -288,12 +343,14 @@ out.push('M30');
       throw new Error('Nothing from this SVG falls inside the plot area.');
     }
 
-    return {
-      gcode: out.join('\n'),
-      warning: unsupported
-        ? 'Some SVG shapes were skipped because they could not be converted.'
-        : ''
-    };
+    const optimizedOut = SvgConverter.joinContinuousSegments(out);
+
+return {
+  gcode: optimizedOut.join('\n'),
+  warning: unsupported
+    ? 'Some SVG shapes were skipped because they could not be converted.'
+    : ''
+};
   }
 }
 )SVGJS";

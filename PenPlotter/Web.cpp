@@ -148,7 +148,8 @@ pre{white-space:pre-wrap;background:#eee;padding:10px;max-height:180px;overflow:
       <option value="50">50 mm</option>
     </select>
   </label>
-
+  <button onclick="command('G28')">Home X/Y</button>
+  <button onclick="stopJob()">STOP</button>
   <div class="row">
     <button onclick="jog(0,-1)">Y-</button>
   </div>
@@ -180,14 +181,8 @@ pre{white-space:pre-wrap;background:#eee;padding:10px;max-height:180px;overflow:
 
     <button onclick="saveFile()">Save / download</button>
   </p>
-<p>
-  <label>
-    Drawing feed (mm/min):
-    <input id="drawingFeedRate" type="number"
-           min="1" max="1500" step="10" value="1000"
-           onchange="saveDrawingFeedRate()">
-  </label>
-</p>
+   <button onclick="command('G28')">Home X/Y</button>
+
   <div class="editor">
     <pre id="lineNumbers" aria-hidden="true">1</pre>
     <textarea id="program" spellcheck="false" wrap="off"
@@ -200,7 +195,7 @@ pre{white-space:pre-wrap;background:#eee;padding:10px;max-height:180px;overflow:
     <button onclick="control('/api/resume')">Resume</button>
     <button onclick="stopJob()">STOP</button>
   </p>
-
+<button onclick="getStatus(true)">Refresh status</button>
   <div id="progress">Idle</div>
 </section>
 
@@ -210,6 +205,14 @@ pre{white-space:pre-wrap;background:#eee;padding:10px;max-height:180px;overflow:
   <p>
   <input id="svgFile" type="file" accept=".svg,image/svg+xml"
          onchange="previewSvg(this)">
+</p>
+<p>
+  <label>
+    Drawing feed (mm/min):
+    <input id="drawingFeedRate" type="number"
+           min="1" max="4000" step="10" value="1000"
+           onchange="saveDrawingFeedRate()">
+  </label>
 </p>
 
   <p>
@@ -531,7 +534,7 @@ server.on("/api/debug-logging", HTTP_POST, []() {
     const float dx = server.arg("x").toFloat();
     const float dy = server.arg("y").toFloat();
 
-    String move = "G91 G0 X" + String(dx, 3) + " Y" + String(dy, 3) + String(HOMING_FEED_MM_MIN)
+    String move = "G91 G0 X" + String(dx, 3) + " Y" + String(dy, 3) + String(HOMING_FEED_MM_MIN);
 
     if (!parser->enqueue(move, Gcode::WEB) || !parser->enqueue("G90", Gcode::WEB) || !parser->enqueue("M30", Gcode::WEB)) {
       sendError(429, "Queue full or controller busy");

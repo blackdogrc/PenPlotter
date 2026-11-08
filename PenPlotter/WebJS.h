@@ -4,6 +4,8 @@
 
 static const char WEB_JS[] PROGMEM = R"JS(
 let cancelJob = false;
+let jobRunning = false
+let IDLE_WAIT_MS = 128
 
 function showTab(id) {
   document.querySelectorAll('.tab').forEach(e => e.classList.remove('active'));
@@ -27,10 +29,13 @@ async function control(url) {
 
 async function stopJob() {
   cancelJob = true;
+  jobRunning = false;
+  updateLineNumbers(0);
   await control('/api/stop');
 }
 
 function updateLineNumbers(activeLine = 0) {
+
   const program = document.getElementById('program');
   const gutter = document.getElementById('lineNumbers');
   const count = program.value.split(/\r?\n/).length;
@@ -112,9 +117,11 @@ async function jog(x, y) {
                                '&y=' + (y * distance));
   log(await response.text());
 }
-
-async function getStatus() {
+async function getStatus(manual = false) {
+  
   try {
+    if (!jobRunning && !manual) return;
+
     const response = await fetch('/api/status');
     const status = await response.json();
 
@@ -128,6 +135,7 @@ async function getStatus() {
     updateLineNumbers(Number(status.line));
     return status;
   } catch (error) {
+    log('Status error: ' + error);
     return null;
   }
 }
@@ -139,9 +147,15 @@ async function waitUntilIdle() {
     const status = await getStatus();
 
     if (cancelJob) return false;
-    if (status && !status.busy && !status.paused) return true;
 
-    await sleep(250);
+    if (status) {
+      log(`Waiting: busy=${status.busy}, paused=${status.paused}, ` +
+          `state=${status.state}, line=${status.line}`);
+
+      if (!status.busy && !status.paused) return true;
+    }
+
+    await sleep(IDLE_WAIT_MS);
   }
   return false;
 }
@@ -157,7 +171,8 @@ async function runJob() {
     log(await response.text());
     return;
   }
-
+  jobRunning = true;
+ try {
   log('Web G-code job started');
 
   for (let i = 0; i < lines.length; i++) {
@@ -228,6 +243,10 @@ async function runJob() {
   } else {
     log(await response.text());
   }
+  } finally {
+    jobRunning = false;
+    updateLineNumbers(0);
+ } 
 }
 
 function escapeHtml(text) {
@@ -474,8 +493,8 @@ function calculateSteps(axis) {
 }
 
 const DRAWING_FEED_KEY = 'drawingFeedRate';
-const DEFAULT_DRAWING_FEED = 600;
-const MAX_DRAWING_FEED = 1000;
+const DEFAULT_DRAWING_FEED = 4000;
+const MAX_DRAWING_FEED = 10000;
 
 function loadDrawingFeedRate() {
   const input = document.getElementById('drawingFeedRate');
@@ -492,7 +511,7 @@ function saveDrawingFeedRate() {
   const value = Number(input.value);
 
   if (!Number.isFinite(value) || value < 1 || value > MAX_DRAWING_FEED) {
-    input.setCustomValidity('Enter a feed from 1 to 1000 mm/min.');
+    input.setCustomValidity( 'Enter a feed from 1 to' + MAX_DRAWING_FEED );
     input.reportValidity();
     return false;
   }
