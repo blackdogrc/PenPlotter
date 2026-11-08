@@ -52,9 +52,15 @@ public:
   float homingSeekRate() const {
     return motion_.homingSeekRate();
   }
+  void resetCheckpoint();
+  String checkpointJson() const;
 private:
   bool ownershipLockEnabled_ = true;
   unsigned long lastActivityMs_ = 0;
+  uint16_t completedLine_ = 0;
+uint16_t pendingMotionLine_ = 0;
+bool pendingMotionLineValid_ = false;
+bool checkpointReady_ = false;
 
 
 

@@ -9,6 +9,8 @@
 static AccelStepper xMotor(AccelStepper::DRIVER, X_STEP_PIN, X_DIR_PIN);
 static AccelStepper yMotor(AccelStepper::DRIVER, Y_STEP_PIN, Y_DIR_PIN);
 static Servo penServo;
+uint32_t moveStartedMs;
+
 
 void Motion::begin() {
   pinMode(X_MIN_PIN, INPUT_PULLUP);
@@ -64,9 +66,13 @@ void Motion::service() {
     xMm_ = xMotor.currentPosition() / xStepsPerMm_;
     yMm_ = yMotor.currentPosition() / yStepsPerMm_;
 
-    Debugger::log(String("Motion complete: X steps=") +
-                  String(xMotor.currentPosition()) +
-                  " Y steps=" + String(yMotor.currentPosition()));
+const uint32_t elapsedMs = millis() - moveStartedMs;
+
+Debugger::log(String("[") + String(millis()) +
+              " ms] Motion complete: elapsed=" +
+              String(elapsedMs) + " ms" +
+              " X steps=" + String(xMotor.currentPosition()) +
+              " Y steps=" + String(yMotor.currentPosition()));
   }
 }
 
@@ -76,6 +82,9 @@ bool Motion::moveTo(float xMm, float yMm, float feedMmMin) {
     Debugger::log("moveTo rejected: motion is already busy");
     return false;
   }
+
+  moveStartedMs = millis();
+
 
   if (feedMmMin > MAX_FEED_MM_MIN) {
     Debugger::log("Feed WAS "+String(feedMmMin)+" but capped at MAX_FEED_MM_MIN="+String(MAX_FEED_MM_MIN));
@@ -119,11 +128,16 @@ bool Motion::moveTo(float xMm, float yMm, float feedMmMin) {
   const float xSpeed = max(1.0f, ux * feed * xStepsPerMm_);
   const float ySpeed = max(1.0f, uy * feed * yStepsPerMm_);
 
-  Debugger::log(String("moveTo target: X=") + String(xt) +
-                " Y=" + String(yt) +
-                " feed=" + String(limitedFeed) +
-                " Xspeed=" + String(xSpeed) +
-                " Yspeed=" + String(ySpeed));
+Debugger::log(String("[") + String(moveStartedMs) +
+              " ms] moveTo start: target X=" + String(xMm, 3) +
+              " Y=" + String(yMm, 3) +
+              " distance=" + String(distance, 3) + " mm" +
+              " requested F=" + String(feedMmMin, 1) +
+              " effective F=" + String(limitedFeed, 1) +
+              " mm/min" +
+              " Xspeed=" + String(xSpeed, 1) +
+              " Yspeed=" + String(ySpeed, 1) +
+              " steps/s");
 
   setMaxSpeed(xMotor, "X", xSpeed);
   setMaxSpeed(yMotor, "Y", ySpeed);
@@ -146,10 +160,10 @@ bool Motion::home() {
 
   //xMotor.setMaxSpeed(homingSeekRateMmMin_ / 60.0f * xStepsPerMm_);
   setMaxSpeed(xMotor,"X",homingSeekRateMmMin_ / 60.0f * xStepsPerMm_);
+  xMotor.moveTo(-200000L);
   while (!switchPressed(X_MIN_PIN)) {
-    xMotor.moveTo(xMotor.currentPosition() - 20);
     xMotor.run();
-    if (xMotor.currentPosition() < -200000) return false;
+    if (xMotor.currentPosition() <= -200000L) return false;
     yield();
   }
 
@@ -169,8 +183,8 @@ bool Motion::home() {
 
   //yMotor.setMaxSpeed(homingSeekRateMmMin_ / 60.0f * yStepsPerMm_);
   setMaxSpeed(yMotor,"Y",(homingSeekRateMmMin_ / 60.0f * yStepsPerMm_));
+  yMotor.moveTo(-200000L);
   while (!switchPressed(Y_MIN_PIN)) {
-    yMotor.moveTo(yMotor.currentPosition() - 20);
     yMotor.run();
     if (yMotor.currentPosition() < -200000) return false;
     yield();
@@ -215,6 +229,7 @@ void Motion::setPosition(float xMm, float yMm) {
 void Motion::pen(bool up) {
   const int pulse = up ? PEN_UP_US : PEN_DOWN_US;
   penServo.writeMicroseconds(pulse);
+  penUp_ = up;
 }
 
 void Motion::stop() {
@@ -246,12 +261,17 @@ void Motion::pause() {
 
 void Motion::resume() {
   if (!movePaused_) return;
+  pausedXTarget_ = xMotor.targetPosition(); // retain your existing logic
+  pausedYTarget_ = yMotor.targetPosition();
+
+  moveStartedMs = millis(); // start timing the resumed portion
 
   xMotor.moveTo(pausedXTarget_);
   yMotor.moveTo(pausedYTarget_);
   busy_ = true;
   movePaused_ = false;
 }
+
 bool Motion::setStepsPerMm(float x, float y) {
   if (busy_) return false;
   if (!isfinite(x) || !isfinite(y)) return false;

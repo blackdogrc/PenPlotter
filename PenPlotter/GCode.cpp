@@ -24,6 +24,7 @@ static bool usbCommandClaimsOwnership(String line) {
   return hasCode(line, "G0") || hasCode(line, "G1") || hasCode(line, "G28") || line == "M3" || line.startsWith("M3 ") || line == "M4" || line.startsWith("M4 ") || line == "M5" || line.startsWith("M5 ") || line == "M9" || line.startsWith("M9 ") || line.indexOf('Z') >= 0;
 }
 bool Gcode::enqueue(const String& input, Source source, uint16_t lineNumber) {
+  checkpointReady_ = false;
   String line = input;
   line.trim();
   if (!line.length() || line == "?") return true;
@@ -93,13 +94,25 @@ void Gcode::clearQueue() {
   }
   tail_ = head_;
 }
-
 void Gcode::stop() {
+  const bool moveWasBusy = motion_.busy();
+
   clearQueue();
+
+  if (pendingMotionLineValid_) {
+    if (!moveWasBusy) {
+      completedLine_ = pendingMotionLine_;
+    }
+
+    pendingMotionLine_ = 0;
+    pendingMotionLineValid_ = false;
+  }
+
   motion_.stop();
   paused_ = false;
   endPending_ = false;
   owner_ = NONE;
+  checkpointReady_ = true;
 }
 
 void Gcode::service() {
@@ -107,7 +120,14 @@ void Gcode::service() {
     owner_ = NONE;
   }
 
-  if (motion_.busy()) return;
+ if (motion_.busy()) return;
+
+// Motion::service() has finished the pending move.
+if (pendingMotionLineValid_) {
+  completedLine_ = pendingMotionLine_;
+  pendingMotionLine_ = 0;
+  pendingMotionLineValid_ = false;
+}
 
   if (endPending_) {
     endPending_ = false;
@@ -121,8 +141,20 @@ void Gcode::service() {
   head_ = (head_ + 1) % QUEUE_SIZE;
   --count_;
 
-  currentLine_ = e.lineNumber;
-  executeLine(e.text);
+currentLine_ = e.lineNumber;
+
+const bool executed = executeLine(e.text);
+
+if (executed && e.lineNumber != 0) {
+  if (motion_.busy()) {
+    // The command started a move; commit its line after motion completes.
+    pendingMotionLine_ = e.lineNumber;
+    pendingMotionLineValid_ = true;
+  } else {
+    // Non-motion command, home, or no-op completed synchronously.
+    completedLine_ = e.lineNumber;
+  }
+}
 
   if (e.endsJob) endPending_ = true;
 
@@ -291,4 +323,27 @@ String Gcode::settings() const {
 static bool isActionableUsbCommand(const String& line) {
   // Commands that can initiate movement or change the pen state.
   return hasCode(line, "G0") || hasCode(line, "G1") || hasCode(line, "G28") || hasCode(line, "M3") || hasCode(line, "M4") || hasCode(line, "M5") || hasCode(line, "M9") || line.indexOf('Z') >= 0;
+}
+
+void Gcode::resetCheckpoint() {
+  completedLine_ = 0;
+  pendingMotionLine_ = 0;
+  pendingMotionLineValid_ = false;
+  checkpointReady_ = false;
+}
+
+String Gcode::checkpointJson() const {
+  String result = "{\"valid\":";
+  result += checkpointReady_ ? "true" : "false";
+  result += ",\"completedLine\":";
+  result += String(completedLine_);
+  result += ",\"x\":";
+  result += String(motion_.x(), 3);
+  result += ",\"y\":";
+  result += String(motion_.y(), 3);
+  result += ",\"penUp\":";
+  result += motion_.penUp() ? "true" : "false";
+  result += "}";
+
+  return result;
 }

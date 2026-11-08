@@ -19,7 +19,7 @@ constexpr float Y_STEPS_PER_MM = 80.0f;
 
 constexpr float MAX_FEED_MM_MIN = 20000.0f;
 constexpr float MAX_ACCELERATION = 3000.0f;
-constexpr float HOMING_FEED_MM_MIN = 4000.0f;
+constexpr float HOMING_FEED_MM_MIN = 700.0f;
 constexpr float HOME_BACKOFF_MM = 3.0f;
 constexpr float DEFAULT_DRAWING_FEED_MM_MIN = 4000.0f;
 

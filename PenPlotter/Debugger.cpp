@@ -13,7 +13,7 @@ bool Debugger::isEnabled() {
 
 void Debugger::log(const String& msg) {
   if (!enabled_) return;
-
+  pendingLog_ += "[" + String(millis()) + " ms] ";
   pendingLog_ += msg;
   pendingLog_ += '\n';
 }

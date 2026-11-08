@@ -196,6 +196,9 @@ pre{white-space:pre-wrap;background:#eee;padding:10px;max-height:180px;overflow:
     <button onclick="stopJob()">STOP</button>
   </p>
 <button onclick="getStatus(true)">Refresh status</button>
+ <button id="pauseConsoleButton"
+        type="button"
+        onclick="toggleConsolePause()">Pause console</button>
   <div id="progress">Idle</div>
 </section>
 
@@ -292,7 +295,9 @@ void webBegin(Gcode& gcode) {
   server.on("/app.js", HTTP_GET, []() {
     server.send_P(200, "application/javascript", WEB_JS);
   });
-
+server.on("/api/checkpoint", HTTP_GET, []() {
+  server.send(200, "application/json", parser->checkpointJson());
+});
 server.on("/api/status", HTTP_GET, []() {
   String status = parser->webStatus();
   const String debug = Debugger::takePendingLog();
@@ -462,6 +467,7 @@ server.on("/api/debug-logging", HTTP_POST, []() {
       sendError(409, "Controller is owned by USB/UGS");
       return;
     }
+    parser->resetCheckpoint();
     server.send(200, "text/plain", "Web job owns motion");
   });
 

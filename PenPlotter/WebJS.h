@@ -6,13 +6,28 @@ static const char WEB_JS[] PROGMEM = R"JS(
 let cancelJob = false;
 let jobRunning = false
 let IDLE_WAIT_MS = 128
+let consolePaused = false;
+let pausedConsoleLines = [];
+const MAX_PAUSED_LOG_LINES = 2000;
 
 function showTab(id) {
   document.querySelectorAll('.tab').forEach(e => e.classList.remove('active'));
   document.getElementById(id).classList.add('active');
 }
 
+
+
 function log(message) {
+  if (consolePaused) {
+    pausedConsoleLines.push(message);
+
+    // Bound memory if the console stays paused during a long job.
+    if (pausedConsoleLines.length > MAX_PAUSED_LOG_LINES) {
+      pausedConsoleLines.shift();
+    }
+    return;
+  }
+
   const box = document.getElementById('console');
   box.textContent += (box.textContent ? '\n' : '') + message;
   box.scrollTop = box.scrollHeight;
@@ -160,93 +175,131 @@ async function waitUntilIdle() {
   return false;
 }
 
-async function runJob() {
-  cancelJob = false;
+function toggleConsolePause() {
+  const button = document.getElementById('pauseConsoleButton');
 
-  const text = document.getElementById('program').value;
-  const lines = text.split(/\r?\n/);
-
-  let response = await fetch('/api/start');
-  if (!response.ok) {
-    log(await response.text());
+  if (!consolePaused) {
+    consolePaused = true;
+    button.textContent = 'Resume console';
     return;
   }
-  jobRunning = true;
- try {
-  log('Web G-code job started');
 
-  for (let i = 0; i < lines.length; i++) {
+  consolePaused = false;
+  button.textContent = 'Pause console';
+
+  if (pausedConsoleLines.length) {
+    const box = document.getElementById('console');
+    const buffered = pausedConsoleLines.join('\n');
+    box.textContent += (box.textContent ? '\n' : '') + buffered;
+    box.scrollTop = box.scrollHeight;
+    pausedConsoleLines = [];
+  }
+}
+
+async function queueJobLine(lineNumber, gcode) {
+  let fullMessageLogged = false;
+
+  while (!cancelJob) {
+    const response = await fetch(
+      '/api/line?n=' + lineNumber +
+      '&g=' + encodeURIComponent(gcode)
+    );
+
+    if (cancelJob) return false;
+
+    if (response.ok) {
+      // A successful enqueue ends the current queue-full episode.
+      fullMessageLogged = false;
+      return true;
+    }
+
+    if (response.status === 429) {
+      if (!fullMessageLogged) {
+        log('Queue full; waiting to enqueue line ' + lineNumber);
+        fullMessageLogged = true;
+      }
+
+      await sleep(IDLE_WAIT_MS);
+      continue;
+    }
+
+    throw new Error(await response.text());
+  }
+
+  return false;
+}
+
+async function runJob() {
+  if (jobRunning) {
+    log('A job is already running');
+    return;
+  }
+
+  cancelJob = false;
+
+  const lines = document.getElementById('program').value.split(/\r?\n/);
+
+  try {
+    const startResponse = await fetch('/api/start');
+    if (!startResponse.ok) {
+      throw new Error(await startResponse.text());
+    }
+
+    jobRunning = true;
+    log('Web G-code job started');
+
+    let endCommandQueued = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      if (cancelJob) break;
+
+      const line = lines[i].trim();
+      if (!line || line.startsWith(';')) continue;
+
+      const accepted = await queueJobLine(i + 1, lines[i]);
+      if (!accepted) break;
+
+      log('Queued line ' + (i + 1) + ': ' + line);
+
+      // M2/M30 ends the job. Don't send later lines.
+      if (/^M(2|30)\b/i.test(line)) {
+        endCommandQueued = true;
+        break;
+      }
+    }
+
     if (cancelJob) {
       log('Job stopped');
       return;
     }
 
-    const line = lines[i].trim();
-    if (!line || line.startsWith(';')) continue;
-
-    while (true) {
-      if (cancelJob) {
+    if (!endCommandQueued) {
+      const endLine = lines.length + 1;
+      const accepted = await queueJobLine(endLine, 'M30');
+      if (!accepted) {
         log('Job stopped');
         return;
       }
+      log('Queued appended M30');
+    }
 
-      response = await fetch('/api/line?n=' + (i + 1) +
-                             '&g=' + encodeURIComponent(lines[i]));
-
-      if (cancelJob) {
-        log('Job stopped');
+    // Only wait for idle after the whole job has been queued.
+    while (!cancelJob) {
+      const status = await getStatus(true);
+      if (status && !status.busy && !status.paused) {
+        log('Job complete');
         return;
       }
-
-      if (response.ok) break;
-
-      if (response.status === 429) {
-        await sleep(250);
-        continue;
-      }
-
-      log(await response.text());
-      return;
+      await sleep(250);
     }
 
-    log('Queued line ' + (i + 1) + ': ' + line);
-
-    const idle = await waitUntilIdle();
-    if (!idle || cancelJob) {
-      log('Job stopped');
-      return;
-    }
-
-    if (/^M(2|30)\b/i.test(line)) {
-      log('Job complete');
-      return;
-    }
-  }
-
-  if (cancelJob) {
     log('Job stopped');
-    return;
-  }
-
-  response = await fetch('/api/line?n=' + (lines.length + 1) +
-                         '&g=M30');
-
-  if (cancelJob) {
-    log('Job stopped');
-    return;
-  }
-
-  if (response.ok) {
-    const idle = await waitUntilIdle();
-    if (idle && !cancelJob) log('Job complete (M30 appended)');
-    else log('Job stopped');
-  } else {
-    log(await response.text());
-  }
+  } catch (error) {
+    log('Job failed: ' + error.message);
   } finally {
     jobRunning = false;
     updateLineNumbers(0);
- } 
+  }
 }
 
 function escapeHtml(text) {

@@ -36,8 +36,10 @@ public:
   float xMaxRateMmMin_ = MAX_FEED_MM_MIN;
   float yMaxRateMmMin_ = MAX_FEED_MM_MIN;
   float homingSeekRateMmMin_ = HOMING_FEED_MM_MIN;
-private:
+  bool penUp() const { return penUp_; }
 
+private:
+  boolean penUp_;
   bool switchPressed(int pin);
   float xStepsPerMm_ = X_STEPS_PER_MM;// for steps calculator
   float yStepsPerMm_ = Y_STEPS_PER_MM;// for steps calculator
