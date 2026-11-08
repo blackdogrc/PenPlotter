@@ -179,30 +179,70 @@ class SvgConverter {
       throw new Error('No usable paths were found in the SVG.');
     }
 
-    const out = ['G21', 'G90', 'M5'];
-    let drawnSegments = 0;
+   const out = ['G21', 'G90', 'M5'];
+let drawnSegments = 0;
+let feedWritten = false;
 
-    for (const points of paths) {
-      for (let i = 1; i < points.length; i++) {
-        const clipped = SvgConverter.clipSegment(
-          points[i - 1], points[i], width, height
-        );
-        if (!clipped) continue;
+for (const points of paths) {
+  let penDown = false;
+  let lastEnd = null;
 
-        const [a, b] = clipped;
-        const ax = a.x.toFixed(3);
-        // SVG Y increases downward; plotter Y is emitted upward.
-        const ay = (height - a.y).toFixed(3);
-        const bx = b.x.toFixed(3);
-        const by = (height - b.y).toFixed(3);
+  for (let i = 1; i < points.length; i++) {
+    const clipped = SvgConverter.clipSegment(
+      points[i - 1], points[i], width, height
+    );
 
-        out.push(`M5`, `G0 X${ax} Y${ay}`, `M3`,
-                 `G1 X${bx} Y${by} F${Math.round(drawingFeed)}`);
-        drawnSegments++;
-      }
+    if (!clipped) {
+      // The path leaves the plot area. Lift the pen before the next
+      // visible segment, which may require a new rapid move.
+      if (penDown) out.push('M5');
+      penDown = false;
+      lastEnd = null;
+      continue;
     }
 
-    out.push('M5', 'M30');
+    const [a, b] = clipped;
+
+    // Skip degenerate segments.
+    if (Math.hypot(b.x - a.x, b.y - a.y) < 0.001) continue;
+
+    const samePoint = lastEnd &&
+      Math.hypot(lastEnd.x - a.x, lastEnd.y - a.y) < 0.01;
+
+    // Start a new contour only when the pen is up or this segment
+    // does not continue from the previous segment's endpoint.
+    if (!penDown || !samePoint) {
+      if (penDown) out.push('M5');
+
+      const ax = a.x.toFixed(3);
+      const ay = (height - a.y).toFixed(3);
+
+      out.push(`G0 X${ax} Y${ay}`, 'M3');
+      penDown = true;
+    }
+
+    const bx = b.x.toFixed(3);
+    const by = (height - b.y).toFixed(3);
+
+    if (!feedWritten) {
+      out.push(
+        `G1 X${bx} Y${by} F${Math.round(drawingFeed)}`
+      );
+      feedWritten = true;
+    } else {
+      out.push(`G1 X${bx} Y${by}`);
+    }
+
+    lastEnd = b;
+    drawnSegments++;
+  }
+
+  // Lift before moving on to the next SVG shape.
+  if (penDown) out.push('M5');
+}
+
+out.push('M30');
+
 
     if (!drawnSegments) {
       throw new Error('Nothing from this SVG falls inside the plot area.');
