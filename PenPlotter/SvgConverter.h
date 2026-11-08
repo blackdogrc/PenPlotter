@@ -53,6 +53,46 @@ class SvgConverter {
       { x: a.x + t1 * dx, y: a.y + t1 * dy }
     ];
   }
+static simplifyAxisAligned(points) {
+  if (points.length < 3) return points;
+
+  const result = [points[0]];
+  const rounded = v => Math.round(v * 1000) / 1000;
+
+  for (let i = 1; i < points.length; i++) {
+    const next = points[i];
+
+    if (result.length >= 2) {
+      const a = result[result.length - 2];
+      const b = result[result.length - 1];
+
+      const ax = rounded(a.x);
+      const ay = rounded(a.y);
+      const bx = rounded(b.x);
+      const by = rounded(b.y);
+      const cx = rounded(next.x);
+      const cy = rounded(next.y);
+
+      const horizontal =
+        ay === by && by === cy &&
+        (bx - ax) * (cx - bx) >= 0;
+
+      const vertical =
+        ax === bx && bx === cx &&
+        (by - ay) * (cy - by) >= 0;
+
+      if (horizontal || vertical) {
+        // The middle point is redundant; keep the new endpoint instead.
+        result[result.length - 1] = next;
+        continue;
+      }
+    }
+
+    result.push(next);
+  }
+
+  return result;
+}
 
   static async convert(file, width, height, mode,drawingFeed) {
     const source = await file.text();
@@ -170,7 +210,7 @@ class SvgConverter {
         const y = (q.y - vb.y) * physicalH / vb.h * scale + offsetY;
         points.push({ x, y });
       }
-      paths.push(points);
+      paths.push(SvgConverter.simplifyAxisAligned(points));
     }
 
     host.remove();

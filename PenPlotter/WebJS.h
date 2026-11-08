@@ -324,6 +324,7 @@ async function setDebugLogging(enabled) {
 function previewSvg(input) {
   const preview = document.getElementById('svgPreview');
   const message = document.getElementById('svgMessage');
+  const generateButton = document.getElementById('generateSvgButton');
 
   if (preview.dataset.url) {
     URL.revokeObjectURL(preview.dataset.url);
@@ -331,15 +332,19 @@ function previewSvg(input) {
   }
 
   const file = input.files && input.files[0];
+
   if (!file) {
     preview.removeAttribute('src');
     preview.style.display = 'none';
+    generateButton.disabled = true;
+    message.textContent = '';
     return;
   }
 
   preview.dataset.url = URL.createObjectURL(file);
   preview.src = preview.dataset.url;
   preview.style.display = 'block';
+  generateButton.disabled = false;
   message.textContent = 'SVG loaded. Ready to generate G-code.';
 }
 

@@ -175,15 +175,16 @@ pre{white-space:pre-wrap;background:#eee;padding:10px;max-height:180px;overflow:
   <h3>G-code</h3>
 
   <p>
-    <input id="svgFile" type="file" accept=".svg,image/svg+xml"
+  <input id="gcodeFile" type="file" accept=".svg,image/svg+xml"
        onchange="previewSvg(this)">
+
     <button onclick="saveFile()">Save / download</button>
   </p>
 <p>
   <label>
     Drawing feed (mm/min):
     <input id="drawingFeedRate" type="number"
-           min="1" max="1000" step="10" value="600"
+           min="1" max="1500" step="10" value="1000"
            onchange="saveDrawingFeedRate()">
   </label>
 </p>
@@ -206,7 +207,10 @@ pre{white-space:pre-wrap;background:#eee;padding:10px;max-height:180px;overflow:
 <section id="svg" class="tab">
   <h3>SVG to G-code</h3>
 
-  <p><input id="svgFile" type="file" accept=".svg,image/svg+xml"></p>
+  <p>
+  <input id="svgFile" type="file" accept=".svg,image/svg+xml"
+         onchange="previewSvg(this)">
+</p>
 
   <p>
     Work area: 225 mm by 325 mm.
@@ -224,7 +228,8 @@ pre{white-space:pre-wrap;background:#eee;padding:10px;max-height:180px;overflow:
       style="display:none;max-width:100%;max-height:45vh;border:1px solid #aaa">
   </p>
 
-  <button onclick="generateSvgGcode()">Generate G-code</button>
+ <button id="generateSvgButton" disabled
+        onclick="generateSvgGcode()">Generate G-code</button>
   <span id="svgMessage"></span>
 </section>
 
@@ -526,7 +531,7 @@ server.on("/api/debug-logging", HTTP_POST, []() {
     const float dx = server.arg("x").toFloat();
     const float dy = server.arg("y").toFloat();
 
-    String move = "G91 G0 X" + String(dx, 3) + " Y" + String(dy, 3) + " F600";
+    String move = "G91 G0 X" + String(dx, 3) + " Y" + String(dy, 3) + String(HOMING_FEED_MM_MIN)
 
     if (!parser->enqueue(move, Gcode::WEB) || !parser->enqueue("G90", Gcode::WEB) || !parser->enqueue("M30", Gcode::WEB)) {
       sendError(429, "Queue full or controller busy");

@@ -17,10 +17,10 @@ constexpr bool ENDSTOPS_ACTIVE_LOW = true;
 constexpr float X_STEPS_PER_MM = 80.0f;
 constexpr float Y_STEPS_PER_MM = 80.0f;
 
-constexpr float MAX_FEED_MM_MIN = 1000.0f;
-constexpr float HOMING_FEED_MM_MIN = 300.0f;
+constexpr float MAX_FEED_MM_MIN = 1500.0f;
+constexpr float HOMING_FEED_MM_MIN = 1000.0f;
 constexpr float HOME_BACKOFF_MM = 3.0f;
-constexpr float DEFAULT_DRAWING_FEED_MM_MIN = 600.0f;
+constexpr float DEFAULT_DRAWING_FEED_MM_MIN = 1000.0f;
 
 // Calibrate these for your pen linkage and servo.
 constexpr int PEN_UP_US = 1700;
