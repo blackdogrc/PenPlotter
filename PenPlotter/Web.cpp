@@ -309,6 +309,7 @@ void webBegin(Gcode& gcode) {
       status += jsonEscape(debug);
       status += "\"}";
     }
+  });
 
     server.on("/api/endstop-polarity", HTTP_POST, []() {
       if (!server.hasArg("x") || !server.hasArg("y")) {
@@ -332,7 +333,6 @@ void webBegin(Gcode& gcode) {
       server.send(200, "application/json",
                   String("{\"x\":") + (parser->xEndstopActiveLow() ? "true" : "false") + ",\"y\":" + (parser->yEndstopActiveLow() ? "true" : "false") + "}");
     });
-  });
 
   server.on("/api/help", HTTP_GET, []() {
     server.send(200, "text/markdown", HELP_TEXT);
@@ -572,7 +572,9 @@ void webBegin(Gcode& gcode) {
     const float dx = server.arg("x").toFloat();
     const float dy = server.arg("y").toFloat();
 
-    String move = "G91 G0 X" + String(dx, 3) + " Y" + String(dy, 3) + String(HOMING_FEED_MM_MIN);
+    String move = "G91 G0 X" + String(dx, 3) +
+              " Y" + String(dy, 3) +
+              " F" + String(HOMING_FEED_MM_MIN);
 
     if (!parser->enqueue(move, Gcode::WEB) || !parser->enqueue("G90", Gcode::WEB) || !parser->enqueue("M30", Gcode::WEB)) {
       sendError(429, "Queue full or controller busy");
