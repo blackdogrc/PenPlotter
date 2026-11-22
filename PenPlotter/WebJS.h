@@ -9,12 +9,40 @@ let IDLE_WAIT_MS = 128
 let consolePaused = false;
 let pausedConsoleLines = [];
 const MAX_PAUSED_LOG_LINES = 2000;
+let restartCheckpoint = null;
+let restartInProgress = false;
 
 function showTab(id) {
   document.querySelectorAll('.tab').forEach(e => e.classList.remove('active'));
   document.getElementById(id).classList.add('active');
 }
 
+async function setEndstopPolarity() {
+  const xBox = document.getElementById('xEndstopActiveLow');
+  const yBox = document.getElementById('yEndstopActiveLow');
+  const oldX = !xBox.checked;
+  const oldY = !yBox.checked;
+
+  try {
+    const response = await fetch('/api/endstop-polarity', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'x=' + (xBox.checked ? '1' : '0') +
+            '&y=' + (yBox.checked ? '1' : '0')
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Request failed');
+
+    xBox.checked = result.x;
+    yBox.checked = result.y;
+    log('Endstop polarity saved');
+  } catch (error) {
+    xBox.checked = oldX;
+    yBox.checked = oldY;
+    log('Could not save endstop polarity: ' + error.message);
+  }
+}
 
 
 function log(message) {
@@ -46,7 +74,32 @@ async function stopJob() {
   cancelJob = true;
   jobRunning = false;
   updateLineNumbers(0);
-  await control('/api/stop');
+
+  const button = document.getElementById('restartJobButton');
+  button.disabled = true;
+  restartCheckpoint = null;
+
+  try {
+    const response = await fetch('/api/stop');
+    const checkpoint = await response.json();
+
+    if (!response.ok) throw new Error('Stop request failed');
+    setRestartCheckpoint(checkpoint);
+    log('Stopped at completed line ' + checkpoint.completedLine);
+  } catch (error) {
+    log('Stop request failed: ' + error);
+  }
+}
+
+function setRestartCheckpoint(checkpoint) {
+  restartCheckpoint =
+    checkpoint && checkpoint.valid &&
+    Number.isInteger(Number(checkpoint.completedLine))
+      ? checkpoint
+      : null;
+
+  document.getElementById('restartJobButton').disabled =
+    !restartCheckpoint;
 }
 
 function updateLineNumbers(activeLine = 0) {
@@ -229,7 +282,7 @@ async function queueJobLine(lineNumber, gcode) {
   return false;
 }
 
-async function runJob() {
+async function runJob(startLine = 1) {
   if (jobRunning) {
     log('A job is already running');
     return;
@@ -250,7 +303,7 @@ async function runJob() {
 
     let endCommandQueued = false;
 
-    for (let i = 0; i < lines.length; i++) {
+    for (let i = startLine - 1; i < lines.length; i++) {
       if (cancelJob) break;
 
       const line = lines[i].trim();
@@ -295,11 +348,26 @@ async function runJob() {
 
     log('Job stopped');
   } catch (error) {
-    log('Job failed: ' + error.message);
-  } finally {
-    jobRunning = false;
-    updateLineNumbers(0);
+  log('Job failed: ' + error.message);
+
+  cancelJob = true;
+  try {
+    const response = await fetch('/api/stop');
+    const checkpoint = await response.json();
+    if (response.ok) {
+      setRestartCheckpoint(checkpoint);
+      if (checkpoint.valid) {
+        log('Restart is available from line ' +
+            (Number(checkpoint.completedLine) + 1));
+      }
+    }
+  } catch (stopError) {
+    log('Could not retrieve stop checkpoint: ' + stopError);
   }
+} finally {
+  jobRunning = false;
+  updateLineNumbers(0);
+}
 }
 
 function escapeHtml(text) {
@@ -420,6 +488,63 @@ function previewSvg(input) {
   message.textContent = 'SVG loaded. Ready to generate G-code.';
 }
 
+async function restartJob() {
+  if (!restartCheckpoint || jobRunning) return;
+
+  const checkpoint = restartCheckpoint;
+  const startLine = Number(checkpoint.completedLine) + 1;
+  const lines = document.getElementById('program').value.split(/\r?\n/);
+
+  if (startLine > lines.length) {
+    log('There are no remaining G-code lines to run.');
+    return;
+  }
+
+  restartInProgress = true;
+  document.getElementById('restartJobButton').disabled = true;
+
+  try {
+    await runControlCommand('M5'); // pen up
+    await runControlCommand('G28'); // home
+    await runControlCommand(
+      `G0 X${Number(checkpoint.x).toFixed(3)} Y${Number(checkpoint.y).toFixed(3)}`
+    );
+
+    if (checkpoint.penUp === false) {
+      await runControlCommand('M3'); // restore pen-down state
+    }
+
+    restartCheckpoint = null;
+    await runJob(startLine);
+  } catch (error) {
+    log('Restart failed: ' + error.message);
+    document.getElementById('restartJobButton').disabled = false;
+  } finally {
+    restartInProgress = false;
+  }
+}
+
+async function runControlCommand(gcode) {
+  const response = await fetch(
+    '/api/cmd?g=' + encodeURIComponent(gcode)
+  );
+  const message = await response.text();
+
+  if (!response.ok) throw new Error(message);
+
+  // /api/cmd appends M30, so wait for that command to finish before
+  // submitting the next setup command.
+  for (let i = 0; i < 240; i++) {
+    const statusResponse = await fetch('/api/status');
+    if (statusResponse.ok) {
+      const status = await statusResponse.json();
+      if (!status.busy) return;
+    }
+    await sleep(250);
+  }
+
+  throw new Error('Timed out waiting for ' + gcode);
+}
 
   
 async function setOwnershipLock(enabled) {

@@ -23,4 +23,3 @@ String Debugger::takePendingLog() {
   pendingLog_ = "";
   return result;
 }
-

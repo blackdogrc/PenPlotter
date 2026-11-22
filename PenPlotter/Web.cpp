@@ -12,11 +12,9 @@ static Gcode* parser = nullptr;
 static void sendApiResponse(int code, const char* contentType,
                             const String& body) {
   if (code >= 400) {
-    Debugger::log(String("API response error ") + String(code) +
-                  ": " + body);
+    Debugger::log(String("API response error ") + String(code) + ": " + body);
   } else {
-    Debugger::log(String("API response ") + String(code) +
-                  ": " + body);
+    Debugger::log(String("API response ") + String(code) + ": " + body);
   }
 
   server.send(code, contentType, body);
@@ -194,6 +192,9 @@ pre{white-space:pre-wrap;background:#eee;padding:10px;max-height:180px;overflow:
     <button onclick="control('/api/pause')">Pause</button>
     <button onclick="control('/api/resume')">Resume</button>
     <button onclick="stopJob()">STOP</button>
+    <button id="restartJobButton" disabled onclick="restartJob()">
+  Restart Job
+</button>
   </p>
 <button onclick="getStatus(true)">Refresh status</button>
  <button id="pauseConsoleButton"
@@ -213,7 +214,7 @@ pre{white-space:pre-wrap;background:#eee;padding:10px;max-height:180px;overflow:
   <label>
     Drawing feed (mm/min):
     <input id="drawingFeedRate" type="number"
-           min="1" max="4000" step="10" value="1000"
+           min="1" max="20000" step="10" value="70000"
            onchange="saveDrawingFeedRate()">
   </label>
 </p>
@@ -295,22 +296,43 @@ void webBegin(Gcode& gcode) {
   server.on("/app.js", HTTP_GET, []() {
     server.send_P(200, "application/javascript", WEB_JS);
   });
-server.on("/api/checkpoint", HTTP_GET, []() {
-  server.send(200, "application/json", parser->checkpointJson());
-});
-server.on("/api/status", HTTP_GET, []() {
-  String status = parser->webStatus();
-  const String debug = Debugger::takePendingLog();
+  server.on("/api/checkpoint", HTTP_GET, []() {
+    server.send(200, "application/json", parser->checkpointJson());
+  });
+  server.on("/api/status", HTTP_GET, []() {
+    String status = parser->webStatus();
+    const String debug = Debugger::takePendingLog();
 
-  if (status.endsWith("}")) {
-    status.remove(status.length() - 1);
-    status += ",\"debug\":\"";
-    status += jsonEscape(debug);
-    status += "\"}";
-  }
+    if (status.endsWith("}")) {
+      status.remove(status.length() - 1);
+      status += ",\"debug\":\"";
+      status += jsonEscape(debug);
+      status += "\"}";
+    }
 
-  server.send(200, "application/json", status);
-});
+    server.on("/api/endstop-polarity", HTTP_POST, []() {
+      if (!server.hasArg("x") || !server.hasArg("y")) {
+        sendError(400, "Missing x or y value");
+        return;
+      }
+
+      const String x = server.arg("x");
+      const String y = server.arg("y");
+
+      if ((x != "0" && x != "1") || (y != "0" && y != "1")) {
+        sendError(400, "x and y must be 0 or 1");
+        return;
+      }
+
+      if (!parser->setEndstopPolarity(x == "1", y == "1")) {
+        sendError(409, "Could not save settings; make sure the plotter is idle");
+        return;
+      }
+
+      server.send(200, "application/json",
+                  String("{\"x\":") + (parser->xEndstopActiveLow() ? "true" : "false") + ",\"y\":" + (parser->yEndstopActiveLow() ? "true" : "false") + "}");
+    });
+  });
 
   server.on("/api/help", HTTP_GET, []() {
     server.send(200, "text/markdown", HELP_TEXT);
@@ -387,8 +409,19 @@ server.on("/api/status", HTTP_GET, []() {
     if (Debugger::isEnabled()) html += "checked ";
     html += "onchange='setDebugLogging(this.checked)'> Enabled</label>";
     html += "</td><td>Writes additional motion and queue diagnostics.</td></tr>";
+    html += "<tr><td>X endstop</td><td>";
+    html += "<label><input id='xEndstopActiveLow' type='checkbox' ";
+    if (parser->xEndstopActiveLow()) html += "checked ";
+    html += "onchange='setEndstopPolarity()'> Pressed = LOW</label>";
+    html += "</td><td>Uncheck if the X input reads HIGH when pressed.</td></tr>";
 
-    html += "</table>"; 
+    html += "<tr><td>Y endstop</td><td>";
+    html += "<label><input id='yEndstopActiveLow' type='checkbox' ";
+    if (parser->yEndstopActiveLow()) html += "checked ";
+    html += "onchange='setEndstopPolarity()'> Pressed = LOW</label>";
+    html += "</td><td>Uncheck if the Y input reads HIGH when pressed.</td></tr>";
+
+    html += "</table>";
 
     html += "<h3>Steps/mm calibration</h3>";
     html += "<p>Enter the commanded distance and the distance actually measured. ";
@@ -438,28 +471,27 @@ server.on("/api/status", HTTP_GET, []() {
                   ? "{\"enabled\":true}"
                   : "{\"enabled\":false}");
   });
-server.on("/api/debug-logging", HTTP_POST, []() {
-  Debugger::log("API POST /api/debug-logging");
-  if (!server.hasArg("enabled")) {
-    sendError(400, "Missing enabled value");
-    return;
-  }
+  server.on("/api/debug-logging", HTTP_POST, []() {
+    Debugger::log("API POST /api/debug-logging");
+    if (!server.hasArg("enabled")) {
+      sendError(400, "Missing enabled value");
+      return;
+    }
 
-  const String value = server.arg("enabled");
-  if (value != "0" && value != "1") {
-    sendError(400, "enabled must be 0 or 1");
-    return;
-  }
+    const String value = server.arg("enabled");
+    if (value != "0" && value != "1") {
+      sendError(400, "enabled must be 0 or 1");
+      return;
+    }
 
-  const bool enabled = (value == "1");
-  Debugger::setEnabled(enabled);
+    const bool enabled = (value == "1");
+    Debugger::setEnabled(enabled);
 
-  server.send(
-    200,
-    "application/json",
-    enabled ? "{\"enabled\":true}" : "{\"enabled\":false}"
-  );
-});
+    server.send(
+      200,
+      "application/json",
+      enabled ? "{\"enabled\":true}" : "{\"enabled\":false}");
+  });
 
   server.on("/api/start", HTTP_GET, []() {
     Debugger::log("API GET /api/start");
@@ -568,7 +600,7 @@ server.on("/api/debug-logging", HTTP_POST, []() {
   server.on("/api/stop", HTTP_GET, []() {
     Debugger::log("API GET /api/stop");
     parser->stop();
-    server.send(200, "text/plain", "Stopped; queue cleared; pen up");
+    server.send(200, "application/json", parser->checkpointJson());
   });
 
   server.begin();
@@ -577,6 +609,3 @@ server.on("/api/debug-logging", HTTP_POST, []() {
 void webService() {
   server.handleClient();
 }
-
-
-

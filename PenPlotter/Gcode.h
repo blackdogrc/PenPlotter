@@ -54,19 +54,26 @@ public:
   }
   void resetCheckpoint();
   String checkpointJson() const;
+
+  bool xEndstopActiveLow() const {
+    return motion_.xEndstopActiveLow();
+  }
+
+  bool yEndstopActiveLow() const {
+    return motion_.yEndstopActiveLow();
+  }
+
+  bool setEndstopPolarity(bool xActiveLow, bool yActiveLow) {
+    return motion_.setEndstopPolarity(xActiveLow, yActiveLow);
+  }
+
 private:
   bool ownershipLockEnabled_ = true;
   unsigned long lastActivityMs_ = 0;
   uint16_t completedLine_ = 0;
-uint16_t pendingMotionLine_ = 0;
-bool pendingMotionLineValid_ = false;
-bool checkpointReady_ = false;
-
-
-
-
-
-
+  uint16_t pendingMotionLine_ = 0;
+  bool pendingMotionLineValid_ = false;
+  bool checkpointReady_ = false;
 
 
 private:
